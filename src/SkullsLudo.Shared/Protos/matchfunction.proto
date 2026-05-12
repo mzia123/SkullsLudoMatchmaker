@@ -1,0 +1,21 @@
+// Copyright 2019 Google LLC
+// Licensed under the Apache License, Version 2.0
+// Source: Open Match v1.8.1
+
+syntax = "proto3";
+package openmatch;
+option csharp_namespace = "OpenMatch";
+
+import "messages.proto";
+
+message RunRequest {
+  MatchProfile profile = 1;
+}
+
+message RunResponse {
+  Match proposal = 1;
+}
+
+service MatchFunction {
+  rpc Run(RunRequest) returns (stream RunResponse);
+}

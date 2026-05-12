@@ -1,0 +1,30 @@
+// Copyright 2019 Google LLC
+// Licensed under the Apache License, Version 2.0
+// Source: Open Match v1.8.1
+
+syntax = "proto3";
+package openmatch;
+option csharp_namespace = "OpenMatch";
+
+import "messages.proto";
+
+message QueryTicketsRequest {
+  Pool pool = 1;
+}
+
+message QueryTicketsResponse {
+  repeated Ticket tickets = 1;
+}
+
+message QueryTicketIdsRequest {
+  Pool pool = 1;
+}
+
+message QueryTicketIdsResponse {
+  repeated string ids = 1;
+}
+
+service QueryService {
+  rpc QueryTickets(QueryTicketsRequest) returns (stream QueryTicketsResponse);
+  rpc QueryTicketIds(QueryTicketIdsRequest) returns (stream QueryTicketIdsResponse);
+}

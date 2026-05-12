@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /source
+
+COPY Directory.Build.props .
+COPY src/SkullsLudo.Shared/SkullsLudo.Shared.csproj src/SkullsLudo.Shared/
+COPY src/SkullsLudo.Evaluator/SkullsLudo.Evaluator.csproj src/SkullsLudo.Evaluator/
+RUN dotnet restore src/SkullsLudo.Evaluator/SkullsLudo.Evaluator.csproj
+
+COPY src/SkullsLudo.Shared/ src/SkullsLudo.Shared/
+COPY src/SkullsLudo.Evaluator/ src/SkullsLudo.Evaluator/
+RUN dotnet publish src/SkullsLudo.Evaluator/SkullsLudo.Evaluator.csproj -c Release -o /app --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+
+EXPOSE 50508
+
+ENTRYPOINT ["dotnet", "SkullsLudo.Evaluator.dll"]

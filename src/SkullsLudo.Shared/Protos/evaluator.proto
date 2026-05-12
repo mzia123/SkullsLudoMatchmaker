@@ -1,0 +1,21 @@
+// Copyright 2019 Google LLC
+// Licensed under the Apache License, Version 2.0
+// Source: Open Match v1.8.1
+
+syntax = "proto3";
+package openmatch;
+option csharp_namespace = "OpenMatch";
+
+import "messages.proto";
+
+message EvaluateRequest {
+  Match match = 1;
+}
+
+message EvaluateResponse {
+  string match_id = 2;
+}
+
+service Evaluator {
+  rpc Evaluate(stream EvaluateRequest) returns (stream EvaluateResponse);
+}

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skulls-ludo-matchfunction
+  labels:
+    app: skulls-ludo-matchfunction
+    component: matchmaker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: skulls-ludo-matchfunction
+  template:
+    metadata:
+      labels:
+        app: skulls-ludo-matchfunction
+        component: matchmaker
+    spec:
+      containers:
+        - name: matchfunction
+          image: skulls-ludo-matchfunction:latest
+          ports:
+            - containerPort: 50502
+              name: grpc
+          env:
+            - name: Matchmaker__OpenMatch__QueryHost
+              value: "open-match-query"
+            - name: Matchmaker__OpenMatch__QueryPort
+              value: "50503"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50502
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50502
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skulls-ludo-matchfunction
+  labels:
+    app: skulls-ludo-matchfunction
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50502
+      targetPort: 50502
+      protocol: TCP
+      name: grpc
+  selector:
+    app: skulls-ludo-matchfunction

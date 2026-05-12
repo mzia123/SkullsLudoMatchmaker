@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /source
+
+COPY Directory.Build.props .
+COPY src/SkullsLudo.Shared/SkullsLudo.Shared.csproj src/SkullsLudo.Shared/
+COPY src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj src/SkullsLudo.MatchFunction/
+RUN dotnet restore src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj
+
+COPY src/SkullsLudo.Shared/ src/SkullsLudo.Shared/
+COPY src/SkullsLudo.MatchFunction/ src/SkullsLudo.MatchFunction/
+RUN dotnet publish src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj -c Release -o /app --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+
+EXPOSE 50502
+
+ENTRYPOINT ["dotnet", "SkullsLudo.MatchFunction.dll"]

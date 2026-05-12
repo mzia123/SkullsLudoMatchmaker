@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skulls-ludo-director
+  labels:
+    app: skulls-ludo-director
+    component: matchmaker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skulls-ludo-director
+  template:
+    metadata:
+      labels:
+        app: skulls-ludo-director
+        component: matchmaker
+    spec:
+      containers:
+        - name: director
+          image: skulls-ludo-director:latest
+          env:
+            - name: Matchmaker__OpenMatch__BackendHost
+              value: "open-match-backend"
+            - name: Matchmaker__OpenMatch__BackendPort
+              value: "50505"
+            - name: Matchmaker__OpenMatch__QueryHost
+              value: "open-match-query"
+            - name: Matchmaker__OpenMatch__QueryPort
+              value: "50503"
+            - name: Matchmaker__OpenMatch__FrontendHost
+              value: "open-match-frontend"
+            - name: Matchmaker__OpenMatch__FrontendPort
+              value: "50504"
+            - name: Matchmaker__MatchFunction__Host
+              value: "skulls-ludo-matchfunction"
+            - name: Matchmaker__MatchFunction__Port
+              value: "50502"
+            - name: Matchmaker__Agones__AllocatorHost
+              value: "agones-allocator.agones-system.svc"
+            - name: Matchmaker__Agones__AllocatorPort
+              value: "443"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

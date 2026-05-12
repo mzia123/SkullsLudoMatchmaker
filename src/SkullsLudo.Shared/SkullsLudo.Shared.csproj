@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Api.CommonProtos" Version="2.*" />
+    <PackageReference Include="Google.Protobuf" Version="3.*" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.*" />
+    <PackageReference Include="Grpc.Tools" Version="2.*" PrivateAssets="All" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\messages.proto" GrpcServices="None" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\frontend.proto" GrpcServices="Both" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\backend.proto" GrpcServices="Both" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\query.proto" GrpcServices="Both" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\matchfunction.proto" GrpcServices="Server" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\evaluator.proto" GrpcServices="Server" ProtoRoot="Protos" />
+  </ItemGroup>
+
+</Project>

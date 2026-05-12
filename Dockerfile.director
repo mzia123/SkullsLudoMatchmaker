@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /source
+
+COPY Directory.Build.props .
+COPY src/SkullsLudo.Shared/SkullsLudo.Shared.csproj src/SkullsLudo.Shared/
+COPY src/SkullsLudo.Director/SkullsLudo.Director.csproj src/SkullsLudo.Director/
+RUN dotnet restore src/SkullsLudo.Director/SkullsLudo.Director.csproj
+
+COPY src/SkullsLudo.Shared/ src/SkullsLudo.Shared/
+COPY src/SkullsLudo.Director/ src/SkullsLudo.Director/
+RUN dotnet publish src/SkullsLudo.Director/SkullsLudo.Director.csproj -c Release -o /app --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app .
+
+ENTRYPOINT ["dotnet", "SkullsLudo.Director.dll"]

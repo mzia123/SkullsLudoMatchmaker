@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SkullsLudo.Director/SkullsLudo.Director.csproj" />
+    <Project Path="src/SkullsLudo.Evaluator/SkullsLudo.Evaluator.csproj" />
+    <Project Path="src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj" />
+    <Project Path="src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj" />
+    <Project Path="src/SkullsLudo.Shared/SkullsLudo.Shared.csproj" />
+  </Folder>
+</Solution>

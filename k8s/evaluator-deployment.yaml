@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skulls-ludo-evaluator
+  labels:
+    app: skulls-ludo-evaluator
+    component: matchmaker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skulls-ludo-evaluator
+  template:
+    metadata:
+      labels:
+        app: skulls-ludo-evaluator
+        component: matchmaker
+    spec:
+      containers:
+        - name: evaluator
+          image: skulls-ludo-evaluator:latest
+          ports:
+            - containerPort: 50508
+              name: grpc
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50508
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50508
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skulls-ludo-evaluator
+  labels:
+    app: skulls-ludo-evaluator
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50508
+      targetPort: 50508
+      protocol: TCP
+      name: grpc
+  selector:
+    app: skulls-ludo-evaluator
