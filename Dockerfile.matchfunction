@@ -4,16 +4,23 @@ WORKDIR /source
 COPY Directory.Build.props .
 COPY src/SkullsLudo.Shared/SkullsLudo.Shared.csproj src/SkullsLudo.Shared/
 COPY src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj src/SkullsLudo.MatchFunction/
-RUN dotnet restore src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj
+RUN dotnet restore src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj -r linux-x64
 
 COPY src/SkullsLudo.Shared/ src/SkullsLudo.Shared/
 COPY src/SkullsLudo.MatchFunction/ src/SkullsLudo.MatchFunction/
-RUN dotnet publish src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj -c Release -o /app --no-restore
+RUN dotnet publish src/SkullsLudo.MatchFunction/SkullsLudo.MatchFunction.csproj \
+    -c Release \
+    -r linux-x64 \
+    --self-contained true \
+    -p:PublishTrimmed=true \
+    -p:PublishSingleFile=true \
+    -o /app \
+    --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
 EXPOSE 50502
 
-ENTRYPOINT ["dotnet", "SkullsLudo.MatchFunction.dll"]
+ENTRYPOINT ["./SkullsLudo.MatchFunction"]

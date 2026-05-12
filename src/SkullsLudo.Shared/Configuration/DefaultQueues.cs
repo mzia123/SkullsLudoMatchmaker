@@ -6,8 +6,8 @@ public static class DefaultQueues
     {
         Name = "practice",
         Tag = "queue.practice",
-        MaxPlayers = 2,
-        MinPlayers = 2,
+        MaxPlayers = 1,
+        MinPlayers = 1,
         Timeout = TimeSpan.FromMinutes(2),
         DegradationSteps = []
     };

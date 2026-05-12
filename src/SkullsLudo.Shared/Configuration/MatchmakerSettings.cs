@@ -4,26 +4,26 @@ public sealed class MatchmakerSettings
 {
     public const string SectionName = "Matchmaker";
 
-    public required OpenMatchSettings OpenMatch { get; init; }
-    public required AgonesSettings Agones { get; init; }
-    public required MatchFunctionSettings MatchFunction { get; init; }
-    public required DirectorSettings Director { get; init; }
-    public required Dictionary<string, QueueConfiguration> Queues { get; init; }
+    public OpenMatchSettings OpenMatch { get; init; } = new();
+    public AgonesSettings Agones { get; init; } = new();
+    public MatchFunctionSettings MatchFunction { get; init; } = new();
+    public DirectorSettings Director { get; init; } = new();
+    public Dictionary<string, QueueConfiguration> Queues { get; init; } = new();
 }
 
 public sealed class OpenMatchSettings
 {
-    public required string FrontendHost { get; init; }
+    public string FrontendHost { get; init; } = "open-match-frontend.open-match.svc.cluster.local";
     public int FrontendPort { get; init; } = 50504;
-    public required string BackendHost { get; init; }
+    public string BackendHost { get; init; } = "open-match-backend.open-match.svc.cluster.local";
     public int BackendPort { get; init; } = 50505;
-    public required string QueryHost { get; init; }
+    public string QueryHost { get; init; } = "open-match-query.open-match.svc.cluster.local";
     public int QueryPort { get; init; } = 50503;
 }
 
 public sealed class AgonesSettings
 {
-    public required string AllocatorHost { get; init; }
+    public string AllocatorHost { get; init; } = "agones-allocator.agones-system.svc";
     public int AllocatorPort { get; init; } = 443;
     public string? ClientCertPath { get; init; }
     public string? ClientKeyPath { get; init; }
@@ -32,7 +32,7 @@ public sealed class AgonesSettings
 
 public sealed class MatchFunctionSettings
 {
-    public required string Host { get; init; }
+    public string Host { get; init; } = "skulls-ludo-matchfunction.default.svc.cluster.local";
     public int Port { get; init; } = 50502;
 }
 

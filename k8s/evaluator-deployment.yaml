@@ -18,20 +18,23 @@ spec:
     spec:
       containers:
         - name: evaluator
-          image: skulls-ludo-evaluator:latest
+          image: docker.io/library/skulls-ludo-matchmaker-evaluator:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 50508
               name: grpc
+            - containerPort: 8080
+              name: health
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 50508
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 50508
+              port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
           resources:

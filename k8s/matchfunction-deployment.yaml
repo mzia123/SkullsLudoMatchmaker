@@ -18,25 +18,28 @@ spec:
     spec:
       containers:
         - name: matchfunction
-          image: skulls-ludo-matchfunction:latest
+          image: docker.io/library/skulls-ludo-matchmaker-matchfunction:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 50502
               name: grpc
+            - containerPort: 8080
+              name: health
           env:
             - name: Matchmaker__OpenMatch__QueryHost
-              value: "open-match-query"
+              value: "open-match-query.open-match.svc.cluster.local"
             - name: Matchmaker__OpenMatch__QueryPort
               value: "50503"
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 50502
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 50502
+              port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
           resources:

@@ -1,16 +1,19 @@
+using System.Net.Http;
+using Grpc.Net.Client;
 using OpenMatch;
 using Serilog;
+using Serilog.Settings.Configuration;
 using SkullsLudo.Director.Services;
 using SkullsLudo.Shared.Configuration;
-using SkullsLudo.Shared.Constants;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+var readerOptions = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
 builder.Services.AddSerilog(loggerConfig =>
-    loggerConfig.ReadFrom.Configuration(builder.Configuration));
+    loggerConfig.ReadFrom.Configuration(builder.Configuration, readerOptions));
 
 var matchmakerSettings = builder.Configuration.GetSection(MatchmakerSettings.SectionName)
-    .Get<MatchmakerSettings>() ?? BuildDefaultSettings();
+    .Get<MatchmakerSettings>() ?? new MatchmakerSettings();
 
 builder.Services.AddSingleton(matchmakerSettings);
 
@@ -18,23 +21,23 @@ var omBackendAddress = $"http://{matchmakerSettings.OpenMatch.BackendHost}:{matc
 var omQueryAddress = $"http://{matchmakerSettings.OpenMatch.QueryHost}:{matchmakerSettings.OpenMatch.QueryPort}";
 var omFrontendAddress = $"http://{matchmakerSettings.OpenMatch.FrontendHost}:{matchmakerSettings.OpenMatch.FrontendPort}";
 
-builder.Services.AddSingleton(_ =>
+var backendChannel = GrpcChannel.ForAddress(omBackendAddress, new GrpcChannelOptions
 {
-    var channel = Grpc.Net.Client.GrpcChannel.ForAddress(omBackendAddress);
-    return new BackendService.BackendServiceClient(channel);
+    HttpHandler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true }
 });
+builder.Services.AddSingleton(new BackendService.BackendServiceClient(backendChannel));
 
-builder.Services.AddSingleton(_ =>
+var queryChannel = GrpcChannel.ForAddress(omQueryAddress, new GrpcChannelOptions
 {
-    var channel = Grpc.Net.Client.GrpcChannel.ForAddress(omQueryAddress);
-    return new QueryService.QueryServiceClient(channel);
+    HttpHandler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true }
 });
+builder.Services.AddSingleton(new QueryService.QueryServiceClient(queryChannel));
 
-builder.Services.AddSingleton(_ =>
+var frontendChannel = GrpcChannel.ForAddress(omFrontendAddress, new GrpcChannelOptions
 {
-    var channel = Grpc.Net.Client.GrpcChannel.ForAddress(omFrontendAddress);
-    return new FrontendService.FrontendServiceClient(channel);
+    HttpHandler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true }
 });
+builder.Services.AddSingleton(new FrontendService.FrontendServiceClient(frontendChannel));
 
 builder.Services.AddSingleton<IGameServerAllocator>(sp =>
     new AgonesAllocatorService(matchmakerSettings.Agones, sp.GetRequiredService<ILogger<AgonesAllocatorService>>()));
@@ -44,23 +47,3 @@ builder.Services.AddHostedService<TimeoutCleanupWorker>();
 
 var host = builder.Build();
 host.Run();
-
-static MatchmakerSettings BuildDefaultSettings() => new()
-{
-    OpenMatch = new OpenMatchSettings
-    {
-        FrontendHost = "open-match-frontend",
-        BackendHost = "open-match-backend",
-        QueryHost = "open-match-query"
-    },
-    Agones = new AgonesSettings
-    {
-        AllocatorHost = "agones-allocator.agones-system.svc"
-    },
-    MatchFunction = new MatchFunctionSettings
-    {
-        Host = "skulls-ludo-matchfunction"
-    },
-    Director = new DirectorSettings(),
-    Queues = DefaultQueues.All
-};

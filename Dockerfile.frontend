@@ -4,17 +4,24 @@ WORKDIR /source
 COPY Directory.Build.props .
 COPY src/SkullsLudo.Shared/SkullsLudo.Shared.csproj src/SkullsLudo.Shared/
 COPY src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj src/SkullsLudo.Frontend/
-RUN dotnet restore src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj
+RUN dotnet restore src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj -r linux-x64
 
 COPY src/SkullsLudo.Shared/ src/SkullsLudo.Shared/
 COPY src/SkullsLudo.Frontend/ src/SkullsLudo.Frontend/
-RUN dotnet publish src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj -c Release -o /app --no-restore
+RUN dotnet publish src/SkullsLudo.Frontend/SkullsLudo.Frontend.csproj \
+    -c Release \
+    -r linux-x64 \
+    --self-contained true \
+    -p:PublishTrimmed=true \
+    -p:PublishSingleFile=true \
+    -o /app \
+    --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "SkullsLudo.Frontend.dll"]
+ENTRYPOINT ["./SkullsLudo.Frontend"]

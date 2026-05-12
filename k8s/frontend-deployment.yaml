@@ -18,7 +18,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: skulls-ludo-frontend:latest
+          image: docker.io/library/skulls-ludo-matchmaker-frontend:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 8080
               name: http
@@ -26,7 +27,7 @@ spec:
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
             - name: Matchmaker__OpenMatch__FrontendHost
-              value: "open-match-frontend"
+              value: "open-match-frontend.open-match.svc.cluster.local"
             - name: Matchmaker__OpenMatch__FrontendPort
               value: "50504"
           livenessProbe:
