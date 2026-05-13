@@ -5,15 +5,8 @@ using SkullsLudo.Shared.Constants;
 
 namespace SkullsLudo.MatchFunction.Strategies;
 
-public sealed class QuickplayMatchStrategy : IMatchStrategy
+public sealed class QuickplayMatchStrategy(QueueConfiguration config) : IMatchStrategy
 {
-    private readonly QueueConfiguration _config;
-
-    public QuickplayMatchStrategy(QueueConfiguration config)
-    {
-        _config = config;
-    }
-
     public string QueueName => WellKnown.Queues.Quickplay;
 
     public IReadOnlyList<Match> CreateMatches(
@@ -29,20 +22,14 @@ public sealed class QuickplayMatchStrategy : IMatchStrategy
             .OrderBy(t => t.SearchFields.DoubleArgs.GetValueOrDefault(WellKnown.SearchFields.Mmr, 0))
             .ToList();
 
-        var targetSizes = BuildTargetSizes();
-
-        foreach (var (requiredAge, playerCount) in targetSizes)
+        foreach (var (requiredAge, playerCount) in BuildTargetSizes())
         {
             var eligible = sortedByMmr
                 .Where(t => !used.Contains(t.Id) && TicketAge(t, now) >= requiredAge)
                 .ToList();
 
-            var grouped = GroupByMmrProximity(eligible, playerCount);
-
-            foreach (var group in grouped)
+            foreach (var group in GroupByMmrProximity(eligible, playerCount))
             {
-                var score = MatchScoring.Calculate(group);
-
                 var match = new Match
                 {
                     MatchId = $"quickplay-{playerCount}p-{Guid.NewGuid():N}",
@@ -50,14 +37,12 @@ public sealed class QuickplayMatchStrategy : IMatchStrategy
                     MatchFunction = nameof(QuickplayMatchStrategy)
                 };
                 match.Tickets.AddRange(group);
-                match.Extensions[WellKnown.Extensions.ScoreKey] = Any.Pack(new DoubleValue { Value = score });
+                match.Extensions[WellKnown.Extensions.ScoreKey] = Any.Pack(new DoubleValue { Value = MatchScoring.Calculate(group) });
                 match.Extensions[WellKnown.Extensions.PlayerCountKey] = Any.Pack(new Int32Value { Value = group.Count });
                 match.Extensions[WellKnown.Extensions.QueueKey] = Any.Pack(new StringValue { Value = QueueName });
 
                 matches.Add(match);
-
-                foreach (var t in group)
-                    used.Add(t.Id);
+                foreach (var t in group) used.Add(t.Id);
             }
         }
 
@@ -66,15 +51,10 @@ public sealed class QuickplayMatchStrategy : IMatchStrategy
 
     private List<(TimeSpan RequiredAge, int PlayerCount)> BuildTargetSizes()
     {
-        var targets = new List<(TimeSpan, int)>
-        {
-            (TimeSpan.Zero, _config.MaxPlayers)
-        };
+        var targets = new List<(TimeSpan, int)> { (TimeSpan.Zero, config.MaxPlayers) };
 
-        foreach (var step in _config.DegradationSteps.OrderBy(s => s.After))
-        {
+        foreach (var step in config.DegradationSteps.OrderBy(s => s.After))
             targets.Add((step.After, step.PlayerCount));
-        }
 
         return targets;
     }
@@ -106,8 +86,7 @@ public sealed class QuickplayMatchStrategy : IMatchStrategy
             if (group.Count == groupSize)
             {
                 results.Add(group);
-                foreach (var t in group)
-                    usedInPass.Add(t.Id);
+                foreach (var t in group) usedInPass.Add(t.Id);
             }
         }
 
@@ -116,11 +95,8 @@ public sealed class QuickplayMatchStrategy : IMatchStrategy
 
     private static TimeSpan TicketAge(Ticket ticket, DateTime now)
     {
-        if (ticket.CreateTime == null)
-            return TimeSpan.Zero;
-
-        var created = ticket.CreateTime.ToDateTime();
-        var age = now - created;
+        if (ticket.CreateTime is null) return TimeSpan.Zero;
+        var age = now - ticket.CreateTime.ToDateTime();
         return age > TimeSpan.Zero ? age : TimeSpan.Zero;
     }
 }

@@ -38,9 +38,26 @@ spec:
             - name: Matchmaker__MatchFunction__Port
               value: "50502"
             - name: Matchmaker__Agones__AllocatorHost
-              value: "agones-allocator.agones-system.svc"
+              value: "agones-allocator.agones-system.svc.cluster.local"
             - name: Matchmaker__Agones__AllocatorPort
               value: "443"
+            - name: Matchmaker__Agones__Namespace
+              value: "default"
+            - name: Matchmaker__Agones__FleetName
+              value: "ludo-prod-fleet"
+            - name: Matchmaker__Agones__ClientCertPath
+              value: "/agones/certs/tls.crt"
+            - name: Matchmaker__Agones__ClientKeyPath
+              value: "/agones/certs/tls.key"
+            - name: Matchmaker__Agones__ServerCaPath
+              value: "/agones/ca/ca.crt"
+          volumeMounts:
+            - name: allocator-client-tls
+              mountPath: /agones/certs
+              readOnly: true
+            - name: allocator-server-ca
+              mountPath: /agones/ca
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -48,3 +65,13 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        # Client cert + key used by the Director to authenticate to agones-allocator.
+        # Provisioned via the `allocator-client-tls` Secret (see k8s/allocator-rbac.yaml).
+        - name: allocator-client-tls
+          secret:
+            secretName: allocator-client-tls
+        # CA certificate of the allocator service for server-cert validation.
+        - name: allocator-server-ca
+          secret:
+            secretName: allocator-server-ca

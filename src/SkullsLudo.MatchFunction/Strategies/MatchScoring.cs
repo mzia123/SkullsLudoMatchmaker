@@ -3,23 +3,25 @@ using SkullsLudo.Shared.Constants;
 
 namespace SkullsLudo.MatchFunction.Strategies;
 
+/// <summary>
+/// Scores match proposals for the Evaluator's de-collision logic.
+/// Higher scores win when two proposals share a ticket.
+/// </summary>
 public static class MatchScoring
 {
-    private static readonly Dictionary<int, double> PlayerCountBaseScores = new()
-    {
-        { 4, 1.0 },
-        { 3, 0.6 },
-        { 2, 0.3 }
-    };
-
     public static double Calculate(IReadOnlyList<Ticket> tickets)
     {
-        var baseScore = PlayerCountBaseScores.GetValueOrDefault(tickets.Count, 0.1);
-        var mmrBonus = CalculateMmrProximityBonus(tickets);
-        return baseScore + mmrBonus;
+        var baseScore = tickets.Count switch
+        {
+            >= 4 => 1.0,
+            3 => 0.6,
+            2 => 0.3,
+            _ => 0.1
+        };
+        return baseScore + MmrProximityBonus(tickets);
     }
 
-    private static double CalculateMmrProximityBonus(IReadOnlyList<Ticket> tickets)
+    private static double MmrProximityBonus(IReadOnlyList<Ticket> tickets)
     {
         if (tickets.Count < 2)
             return 0;

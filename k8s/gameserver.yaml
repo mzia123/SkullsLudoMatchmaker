@@ -1,0 +1,43 @@
+apiVersion: agones.dev/v1
+kind: GameServer
+metadata:
+  name: skulls-ludo
+spec:
+  health:
+    disabled: true
+  ports:
+    - name: default
+      portPolicy: Dynamic
+      containerPort: 7777
+      protocol: UDP
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: skulls-ludo
+          image: zeeshanvillaex/ludo-server:ten
+          imagePullPolicy: Never
+          workingDir: /home/unityuser/app
+          command: ["./ludoserver.x86_64"]
+          args:
+            - "-batchmode"
+            - "-nographics"
+            - "-logFile"
+            - "/dev/stdout"
+            - "-nomm"
+          env:
+            - name: SL_START
+              value: "lserver"
+            - name: SL_MODE
+              value: "quickplay"
+            - name: SL_PLAYER_COUNT
+              value: "1"
+            - name: SL_NPC_COUNT
+              value: "3"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

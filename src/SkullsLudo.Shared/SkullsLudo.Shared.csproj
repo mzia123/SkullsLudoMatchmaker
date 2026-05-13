@@ -19,6 +19,7 @@
     <Protobuf Include="Protos\query.proto" GrpcServices="Both" ProtoRoot="Protos" />
     <Protobuf Include="Protos\matchfunction.proto" GrpcServices="Server" ProtoRoot="Protos" />
     <Protobuf Include="Protos\evaluator.proto" GrpcServices="Server" ProtoRoot="Protos" />
+    <Protobuf Include="Protos\allocation.proto" GrpcServices="Client" ProtoRoot="Protos" />
   </ItemGroup>
 
 </Project>

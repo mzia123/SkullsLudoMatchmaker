@@ -12,17 +12,19 @@ public sealed class TimeoutCleanupWorker(
     MatchmakerSettings settings,
     ILogger<TimeoutCleanupWorker> logger) : BackgroundService
 {
-    private const int CleanupIntervalMs = 10_000;
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Timeout cleanup worker started");
 
+        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await CleanupTimedOutTicketsAsync(stoppingToken);
+                await CleanupAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -30,79 +32,65 @@ public sealed class TimeoutCleanupWorker(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error during timeout cleanup");
+                logger.LogError(ex, "Timeout cleanup error");
             }
 
-            await Task.Delay(CleanupIntervalMs, stoppingToken);
+            await Task.Delay(Interval, stoppingToken);
         }
     }
 
-    private async Task CleanupTimedOutTicketsAsync(CancellationToken ct)
+    private async Task CleanupAsync(CancellationToken ct)
     {
         foreach (var (queueName, queueConfig) in settings.Queues)
         {
-            var cutoff = DateTime.UtcNow - queueConfig.Timeout;
+            var cutoff = Timestamp.FromDateTime((DateTime.UtcNow - queueConfig.Timeout).ToUniversalTime());
 
             var pool = new Pool
             {
                 Name = $"timeout_scan_{queueName}",
                 TagPresentFilters = { new TagPresentFilter { Tag = queueConfig.Tag } },
-                CreatedBefore = Timestamp.FromDateTime(cutoff.ToUniversalTime())
+                CreatedBefore = cutoff
             };
 
-            var timedOutTickets = new List<string>();
+            var timedOut = new List<string>();
 
             try
             {
                 using var stream = queryClient.QueryTickets(
-                    new QueryTicketsRequest { Pool = pool },
-                    cancellationToken: ct);
+                    new QueryTicketsRequest { Pool = pool }, cancellationToken: ct);
 
                 await foreach (var response in stream.ResponseStream.ReadAllAsync(ct))
                 {
-                    foreach (var ticket in response.Tickets)
-                    {
-                        timedOutTickets.Add(ticket.Id);
-                    }
+                    timedOut.AddRange(response.Tickets.Select(t => t.Id));
                 }
             }
-            catch (Exception ex)
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
             {
-                logger.LogError(ex, "Error querying timed-out tickets for queue {Queue}", queueName);
                 continue;
             }
 
-            if (timedOutTickets.Count == 0)
+            if (timedOut.Count == 0)
                 continue;
 
-            logger.LogInformation("Found {Count} timed-out ticket(s) in queue {Queue}", timedOutTickets.Count, queueName);
+            logger.LogInformation("Found {Count} timed-out ticket(s) in {Queue}", timedOut.Count, queueName);
 
             var timeoutAssignment = new Assignment();
             timeoutAssignment.Extensions[WellKnown.Extensions.TimeoutKey] =
                 Any.Pack(new BoolValue { Value = true });
 
-            var assignRequest = new AssignTicketsRequest
+            await backendClient.AssignTicketsAsync(new AssignTicketsRequest
             {
                 Assignments =
                 {
                     new AssignmentGroup
                     {
                         Assignment = timeoutAssignment,
-                        TicketIds = { timedOutTickets }
+                        TicketIds = { timedOut }
                     }
                 }
-            };
+            }, cancellationToken: ct);
 
-            try
-            {
-                await backendClient.AssignTicketsAsync(assignRequest, cancellationToken: ct);
-                logger.LogInformation("Marked {Count} ticket(s) as timed out in queue {Queue}",
-                    timedOutTickets.Count, queueName);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error assigning timeout to tickets in queue {Queue}", queueName);
-            }
+            logger.LogInformation("Marked {Count} ticket(s) timed out in {Queue}", timedOut.Count, queueName);
         }
     }
 }

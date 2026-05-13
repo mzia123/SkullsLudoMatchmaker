@@ -1,0 +1,110 @@
+# SkullsLudo production game-server fleet.
+#
+# Compatibility contract with the matchmaker (SkullsLudo.Director):
+#   - Director allocates with selector { agones.dev/fleet: ludo-prod-fleet }
+#     (Agones auto-applies that label to every GameServer of this fleet).
+#   - Director stamps annotations on the allocated GameServer:
+#       sl/match-id, sl/queue-name, sl/game-mode, sl/player-count,
+#       sl/npc-count, sl/match-json, sl/ticket-ids
+#     The Unity server is expected to read these via the Agones SDK.
+#   - The SL_* env vars below are *fallback defaults* if reading from
+#     the matchmaker fails. They MUST remain valid for solo play.
+apiVersion: agones.dev/v1
+kind: Fleet
+metadata:
+  name: ludo-prod-fleet
+  labels:
+    app: ludo
+    environment: production
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 1
+  scheduling: Packed
+  template:
+    metadata:
+      labels:
+        app: ludo
+        tier: gameserver
+        environment: production
+    spec:
+      ports:
+        - name: game
+          portPolicy: Dynamic
+          containerPort: 7777
+          protocol: UDP
+      health:
+        disabled: false
+        initialDelaySeconds: 15
+        periodSeconds: 5
+        failureThreshold: 3
+      sdkServer:
+        logLevel: Info
+        grpcPort: 9357
+        httpPort: 9358
+      template:
+        spec:
+          terminationGracePeriodSeconds: 5
+          containers:
+            - name: unity-ludo-server
+              image: zeeshanvillaex/ludo-server:ten
+              imagePullPolicy: IfNotPresent
+              ports:
+                - name: game
+                  containerPort: 7777
+                  protocol: UDP
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              env:
+                - name: SL_START
+                  value: "server"
+                - name: SL_MATCH_PROVIDER
+                  value: "env"
+                - name: SL_ENABLE_MATCHMAKER
+                  value: "false"
+                - name: SL_ENABLE_DIRECT_CONNECT
+                  value: "true"
+
+                # Server bind
+                - name: SL_SERVER_IP
+                  value: "0.0.0.0"
+                - name: SL_SERVER_PORT
+                  value: "7777"
+                - name: PORT
+                  value: "7777"
+
+                # Match defaults (overridden per-allocation via sl/* annotations)
+                - name: SL_GAME_MODE
+                  value: "practice"
+                - name: SL_PLAYER_COUNT
+                  value: "1"
+                - name: SL_NPC_COUNT
+                  value: "3"
+
+                # Lifecycle
+                - name: SL_AGONES_HEALTH_INTERVAL_SEC
+                  value: "2"
+                - name: SL_GRACEFUL_SHUTDOWN_TIMEOUT_SEC
+                  value: "1"
+---
+# Keep a small buffer of Ready GameServers so allocations don't wait for cold starts.
+apiVersion: autoscaling.agones.dev/v1
+kind: FleetAutoscaler
+metadata:
+  name: ludo-prod-fleet
+spec:
+  fleetName: ludo-prod-fleet
+  policy:
+    type: Buffer
+    buffer:
+      bufferSize: 2
+      minReplicas: 2
+      maxReplicas: 20

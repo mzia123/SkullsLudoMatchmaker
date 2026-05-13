@@ -10,6 +10,8 @@ namespace SkullsLudo.Frontend.Endpoints;
 
 public static class MatchmakingEndpoints
 {
+    private static readonly TimeSpan HardTimeout = TimeSpan.FromMinutes(2);
+
     public static RouteGroupBuilder MapMatchmakingEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/matchmaking/tickets")
@@ -45,7 +47,7 @@ public static class MatchmakingEndpoints
         if (!queues.TryGetValue(request.Queue, out var queueConfig))
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["queue"] = [$"Unknown queue '{request.Queue}'. Valid queues: {string.Join(", ", queues.Keys)}"]
+                ["queue"] = [$"Unknown queue '{request.Queue}'. Valid: {string.Join(", ", queues.Keys)}"]
             });
 
         var ticket = new Ticket
@@ -59,32 +61,24 @@ public static class MatchmakingEndpoints
         };
 
         var created = await frontendService.CreateTicketAsync(ticket, ct);
-
-        var response = new CreateTicketResponse { TicketId = created.Id };
-        return Results.Created($"/api/matchmaking/tickets/{created.Id}", response);
+        return Results.Created($"/api/matchmaking/tickets/{created.Id}",
+            new CreateTicketResponse { TicketId = created.Id });
     }
 
     private static async Task<IResult> GetTicketStatus(
         string ticketId,
         [FromServices] IOpenMatchFrontendService frontendService,
-        [FromServices] IConfiguration config,
         CancellationToken ct)
     {
         var ticket = await frontendService.GetTicketAsync(ticketId, ct);
         if (ticket is null)
             return Results.NotFound();
 
-        var timeoutMinutes = config.GetValue("Matchmaker:TimeoutMinutes", 2);
-        var ticketAge = DateTime.UtcNow - ticket.CreateTime.ToDateTime();
-
         if (ticket.Assignment is { Connection.Length: > 0 } assignment)
         {
             int? playerCount = null;
             if (assignment.Extensions.TryGetValue(WellKnown.Extensions.PlayerCountKey, out var pcAny))
-            {
-                var wrappedValue = pcAny.Unpack<Int32Value>();
-                playerCount = wrappedValue.Value;
-            }
+                playerCount = pcAny.Unpack<Int32Value>().Value;
 
             return Results.Ok(new TicketStatusResponse
             {
@@ -95,8 +89,7 @@ public static class MatchmakingEndpoints
             });
         }
 
-        if (ticket.Assignment is not null &&
-            ticket.Assignment.Extensions.ContainsKey(WellKnown.Extensions.TimeoutKey))
+        if (ticket.Assignment?.Extensions.ContainsKey(WellKnown.Extensions.TimeoutKey) == true)
         {
             await frontendService.DeleteTicketAsync(ticketId, ct);
             return Results.Ok(new TicketStatusResponse
@@ -106,7 +99,8 @@ public static class MatchmakingEndpoints
             });
         }
 
-        if (ticketAge > TimeSpan.FromMinutes(timeoutMinutes))
+        var ticketAge = DateTime.UtcNow - ticket.CreateTime.ToDateTime();
+        if (ticketAge > HardTimeout)
         {
             await frontendService.DeleteTicketAsync(ticketId, ct);
             return Results.Ok(new TicketStatusResponse

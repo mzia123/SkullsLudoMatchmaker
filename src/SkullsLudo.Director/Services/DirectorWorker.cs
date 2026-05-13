@@ -12,9 +12,14 @@ public sealed class DirectorWorker(
     MatchmakerSettings settings,
     ILogger<DirectorWorker> logger) : BackgroundService
 {
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(5);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Director started. Loop interval: {Interval}ms", settings.Director.LoopIntervalMs);
+        logger.LogInformation("Director starting in {Delay}s. Loop interval: {Interval}ms",
+            StartupDelay.TotalSeconds, settings.Director.LoopIntervalMs);
+
+        await Task.Delay(StartupDelay, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -28,35 +33,32 @@ public sealed class DirectorWorker(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error in director match cycle");
+                logger.LogError(ex, "Error in match cycle");
             }
 
             await Task.Delay(settings.Director.LoopIntervalMs, stoppingToken);
         }
 
-        logger.LogInformation("Director stopping");
+        logger.LogInformation("Director stopped");
     }
 
     private async Task RunMatchCycleAsync(CancellationToken ct)
     {
-        var fetchTasks = settings.Queues.Select(kv => FetchAndAssignAsync(kv.Key, kv.Value, ct));
-        await Task.WhenAll(fetchTasks);
+        var tasks = settings.Queues.Select(kv => FetchAndAssignAsync(kv.Key, kv.Value, ct));
+        await Task.WhenAll(tasks);
     }
 
     private async Task FetchAndAssignAsync(string queueName, QueueConfiguration queueConfig, CancellationToken ct)
     {
-        var profile = BuildProfile(queueName, queueConfig);
-        var functionConfig = new FunctionConfig
-        {
-            Host = settings.MatchFunction.Host,
-            Port = settings.MatchFunction.Port,
-            Type = FunctionConfig.Types.Type.Grpc
-        };
-
         var request = new FetchMatchesRequest
         {
-            Config = functionConfig,
-            Profile = profile
+            Config = new FunctionConfig
+            {
+                Host = settings.MatchFunction.Host,
+                Port = settings.MatchFunction.Port,
+                Type = FunctionConfig.Types.Type.Grpc
+            },
+            Profile = BuildProfile(queueName, queueConfig)
         };
 
         try
@@ -65,11 +67,13 @@ public sealed class DirectorWorker(
 
             await foreach (var response in stream.ResponseStream.ReadAllAsync(ct))
             {
-                if (response.Match is null)
-                    continue;
-
-                await ProcessMatchAsync(response.Match, queueName, ct);
+                if (response.Match is not null)
+                    await ProcessMatchAsync(response.Match, queueName, queueConfig, ct);
             }
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            logger.LogWarning("Backend unavailable for queue {Queue}, will retry next cycle", queueName);
         }
         catch (Exception ex)
         {
@@ -77,26 +81,26 @@ public sealed class DirectorWorker(
         }
     }
 
-    private async Task ProcessMatchAsync(Match match, string queueName, CancellationToken ct)
+    private async Task ProcessMatchAsync(Match match, string queueName, QueueConfiguration queueConfig, CancellationToken ct)
     {
-        logger.LogInformation("Processing match {MatchId} with {TicketCount} ticket(s) for queue {Queue}",
+        logger.LogInformation("Match {MatchId}: {TicketCount} ticket(s) for {Queue}",
             match.MatchId, match.Tickets.Count, queueName);
 
-        var allocation = await allocator.AllocateAsync(queueName, ct);
+        var allocation = await allocator.AllocateAsync(queueName, queueConfig, match, ct);
         if (allocation is null)
         {
-            logger.LogWarning("Failed to allocate server for match {MatchId}. Releasing tickets.", match.MatchId);
+            logger.LogWarning("No server for match {MatchId}, releasing tickets", match.MatchId);
             await ReleaseTicketsAsync(match, ct);
             return;
         }
 
-        var ticketIds = match.Tickets.Select(t => t.Id).ToList();
         var assignment = new Assignment { Connection = allocation.Connection };
 
         if (match.Extensions.TryGetValue(WellKnown.Extensions.PlayerCountKey, out var pcAny))
             assignment.Extensions[WellKnown.Extensions.PlayerCountKey] = pcAny;
 
-        var assignRequest = new AssignTicketsRequest
+        var ticketIds = match.Tickets.Select(t => t.Id).ToList();
+        var response = await backendClient.AssignTicketsAsync(new AssignTicketsRequest
         {
             Assignments =
             {
@@ -106,20 +110,16 @@ public sealed class DirectorWorker(
                     TicketIds = { ticketIds }
                 }
             }
-        };
+        }, cancellationToken: ct);
 
-        var assignResponse = await backendClient.AssignTicketsAsync(assignRequest, cancellationToken: ct);
-
-        if (assignResponse.Failures.Count > 0)
+        if (response.Failures.Count > 0)
         {
-            foreach (var failure in assignResponse.Failures)
-            {
-                logger.LogWarning("Failed to assign ticket {TicketId}: {Cause}", failure.TicketId, failure.Cause);
-            }
+            foreach (var f in response.Failures)
+                logger.LogWarning("Assign failed for ticket {TicketId}: {Cause}", f.TicketId, f.Cause);
         }
         else
         {
-            logger.LogInformation("Assigned {TicketCount} ticket(s) to {Connection} for match {MatchId}",
+            logger.LogInformation("Assigned {Count} ticket(s) to {Connection} for {MatchId}",
                 ticketIds.Count, allocation.Connection, match.MatchId);
         }
     }
@@ -128,9 +128,8 @@ public sealed class DirectorWorker(
     {
         try
         {
-            var ticketIds = match.Tickets.Select(t => t.Id).ToList();
             await backendClient.ReleaseTicketsAsync(
-                new ReleaseTicketsRequest { TicketIds = { ticketIds } },
+                new ReleaseTicketsRequest { TicketIds = { match.Tickets.Select(t => t.Id) } },
                 cancellationToken: ct);
         }
         catch (Exception ex)
@@ -139,18 +138,16 @@ public sealed class DirectorWorker(
         }
     }
 
-    private static MatchProfile BuildProfile(string queueName, QueueConfiguration queueConfig)
+    private static MatchProfile BuildProfile(string queueName, QueueConfiguration queueConfig) => new()
     {
-        var pool = new Pool
+        Name = queueName,
+        Pools =
         {
-            Name = $"pool_{queueName}",
-            TagPresentFilters = { new TagPresentFilter { Tag = queueConfig.Tag } }
-        };
-
-        return new MatchProfile
-        {
-            Name = queueName,
-            Pools = { pool }
-        };
-    }
+            new Pool
+            {
+                Name = $"pool_{queueName}",
+                TagPresentFilters = { new TagPresentFilter { Tag = queueConfig.Tag } }
+            }
+        }
+    };
 }

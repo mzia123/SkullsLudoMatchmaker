@@ -23,11 +23,18 @@ public sealed class OpenMatchSettings
 
 public sealed class AgonesSettings
 {
-    public string AllocatorHost { get; init; } = "agones-allocator.agones-system.svc";
+    public string AllocatorHost { get; init; } = "agones-allocator.agones-system.svc.cluster.local";
     public int AllocatorPort { get; init; } = 443;
-    public string? ClientCertPath { get; init; }
-    public string? ClientKeyPath { get; init; }
-    public string? ServerCaPath { get; init; }
+    public string Namespace { get; init; } = "default";
+    public string FleetName { get; init; } = "ludo-prod-fleet";
+
+    public string ClientCertPath { get; init; } = "/agones/certs/tls.crt";
+    public string ClientKeyPath { get; init; } = "/agones/certs/tls.key";
+    public string ServerCaPath { get; init; } = "/agones/ca/ca.crt";
+
+    public int AllocationTimeoutSeconds { get; init; } = 5;
+
+    public string AnnotationPrefix { get; init; } = "sl";
 }
 
 public sealed class MatchFunctionSettings

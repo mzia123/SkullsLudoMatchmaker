@@ -1,46 +1,193 @@
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using Agones.Allocation;
+using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
+using Grpc.Net.Client;
+using OpenMatch;
 using SkullsLudo.Shared.Configuration;
+using SkullsLudo.Shared.Constants;
 
 namespace SkullsLudo.Director.Services;
 
-public sealed class AgonesAllocatorService(
-    AgonesSettings settings,
-    ILogger<AgonesAllocatorService> logger) : IGameServerAllocator
+/// <summary>
+/// Allocates an Agones GameServer from the configured fleet and stamps per-match
+/// info onto the GameServer as annotations. The Unity build reads those annotations
+/// via the Agones SDK at session start.
+/// </summary>
+public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
 {
-    public async Task<GameServerAllocation?> AllocateAsync(string queueName, CancellationToken ct = default)
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
+    private readonly AgonesSettings _settings;
+    private readonly ILogger<AgonesAllocatorService> _logger;
+    private readonly GrpcChannel _channel;
+    private readonly AllocationService.AllocationServiceClient _client;
+
+    public AgonesAllocatorService(AgonesSettings settings, ILogger<AgonesAllocatorService> logger)
+    {
+        _settings = settings;
+        _logger = logger;
+        _channel = BuildChannel(settings, logger);
+        _client = new AllocationService.AllocationServiceClient(_channel);
+    }
+
+    public async Task<GameServerAllocation?> AllocateAsync(
+        string queueName,
+        QueueConfiguration queueConfig,
+        Match match,
+        CancellationToken ct = default)
+    {
+        var playerCount = ReadPlayerCount(match, queueConfig);
+        var npcCount = Math.Max(0, queueConfig.MaxPlayers - playerCount);
+        var prefix = _settings.AnnotationPrefix;
+
+        var matchJson = JsonSerializer.Serialize(new MatchInfoPayload(
+            match.MatchId, queueName, queueName, playerCount, npcCount), JsonOptions);
+
+        var request = new AllocationRequest
+        {
+            Namespace = _settings.Namespace,
+            Scheduling = AllocationRequest.Types.SchedulingStrategy.Packed,
+            GameServerSelectors =
+            {
+                new GameServerSelector
+                {
+                    MatchLabels = { ["agones.dev/fleet"] = _settings.FleetName },
+                    GameServerState = GameServerSelector.Types.GameServerState.Ready
+                }
+            },
+            Metadata = new MetaPatch
+            {
+                Annotations =
+                {
+                    [$"{prefix}/match-id"] = match.MatchId,
+                    [$"{prefix}/queue-name"] = queueName,
+                    [$"{prefix}/game-mode"] = queueName,
+                    [$"{prefix}/player-count"] = playerCount.ToString(),
+                    [$"{prefix}/npc-count"] = npcCount.ToString(),
+                    [$"{prefix}/match-json"] = matchJson,
+                    [$"{prefix}/ticket-ids"] = string.Join(",", match.Tickets.Select(t => t.Id))
+                }
+            }
+        };
+
         try
         {
-            // In production, this creates an mTLS gRPC channel to agones-allocator
-            // and calls AllocationService.Allocate with fleet selectors matching the queue.
-            //
-            // var creds = new SslCredentials(serverCa, new KeyCertificatePair(clientCert, clientKey));
-            // var channel = new Channel(settings.AllocatorHost, settings.AllocatorPort, creds);
-            // var client = new AllocationService.AllocationServiceClient(channel);
-            // var response = await client.AllocateAsync(new AllocationRequest
-            // {
-            //     Namespace = "default",
-            //     GameServerSelectors = { new GameServerSelector { MatchLabels = { { "queue", queueName } } } }
-            // });
-            // return new GameServerAllocation { Address = response.Address, Port = response.Ports[0].Port };
+            var deadline = DateTime.UtcNow.AddSeconds(_settings.AllocationTimeoutSeconds);
+            var response = await _client.AllocateAsync(request, deadline: deadline, cancellationToken: ct);
 
-            logger.LogInformation("Allocating Agones game server for queue {Queue} from {Host}:{Port}",
-                queueName, settings.AllocatorHost, settings.AllocatorPort);
+            if (string.IsNullOrEmpty(response.Address) || response.Ports.Count == 0)
+            {
+                _logger.LogWarning("Allocator returned empty address/ports for match {MatchId}", match.MatchId);
+                return null;
+            }
 
-            await Task.CompletedTask;
-
-            logger.LogWarning("Agones allocation is stubbed. Returning placeholder address. " +
-                "Replace with real AllocationService.Allocate call in production.");
+            var port = response.Ports[0].Port;
+            _logger.LogInformation(
+                "Allocated GameServer {Name} at {Address}:{Port} for match {MatchId} (queue={Queue}, players={Players}, npcs={Npcs})",
+                response.GameServerName, response.Address, port, match.MatchId, queueName, playerCount, npcCount);
 
             return new GameServerAllocation
             {
-                Address = "game-server.default.svc.cluster.local",
-                Port = 7654
+                Address = response.Address,
+                Port = port,
+                GameServerName = response.GameServerName
             };
+        }
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.ResourceExhausted)
+        {
+            _logger.LogWarning("No Ready GameServer in fleet {Fleet} for match {MatchId}",
+                _settings.FleetName, match.MatchId);
+            return null;
+        }
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.DeadlineExceeded or StatusCode.Unavailable)
+        {
+            _logger.LogWarning("Allocator transient failure ({Code}) for match {MatchId}: {Message}",
+                ex.StatusCode, match.MatchId, ex.Status.Detail);
+            return null;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to allocate game server for queue {Queue}", queueName);
+            _logger.LogError(ex, "Failed to allocate GameServer for match {MatchId}", match.MatchId);
             return null;
         }
     }
+
+    private static int ReadPlayerCount(Match match, QueueConfiguration queueConfig)
+    {
+        if (match.Extensions.TryGetValue(WellKnown.Extensions.PlayerCountKey, out var any))
+            return any.Unpack<Int32Value>().Value;
+        return queueConfig.MaxPlayers;
+    }
+
+    private static GrpcChannel BuildChannel(AgonesSettings s, ILogger logger)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+            SslOptions = BuildSslOptions(s, logger)
+        };
+
+        return GrpcChannel.ForAddress(
+            $"https://{s.AllocatorHost}:{s.AllocatorPort}",
+            new GrpcChannelOptions { HttpHandler = handler });
+    }
+
+    private static SslClientAuthenticationOptions BuildSslOptions(AgonesSettings s, ILogger logger)
+    {
+        var clientCert = LoadClientCertificate(s);
+        var trustedCa = LoadCa(s);
+
+        return new SslClientAuthenticationOptions
+        {
+            ClientCertificates = [clientCert],
+            RemoteCertificateValidationCallback = (_, cert, chain, errors) =>
+            {
+                if (cert is null || chain is null)
+                {
+                    logger.LogError("Allocator TLS validation: missing cert/chain");
+                    return false;
+                }
+
+                chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+                chain.ChainPolicy.CustomTrustStore.Clear();
+                chain.ChainPolicy.CustomTrustStore.Add(trustedCa);
+
+                var ok = chain.Build(new X509Certificate2(cert));
+                if (!ok)
+                    logger.LogError("Allocator TLS validation failed: errors={Errors}, status={Status}",
+                        errors,
+                        string.Join(", ", chain.ChainStatus.Select(s => s.StatusInformation.Trim())));
+                return ok;
+            }
+        };
+    }
+
+    private static X509Certificate2 LoadClientCertificate(AgonesSettings s)
+    {
+        var pem = X509Certificate2.CreateFromPemFile(s.ClientCertPath, s.ClientKeyPath);
+        // Round-trip via PKCS#12 so the private key is correctly associated for SslStream
+        // on all platforms (Linux containers + Windows dev boxes).
+        var pfx = pem.Export(X509ContentType.Pkcs12);
+        return X509CertificateLoader.LoadPkcs12(pfx, password: null);
+    }
+
+    private static X509Certificate2 LoadCa(AgonesSettings s)
+        => X509CertificateLoader.LoadCertificateFromFile(s.ServerCaPath);
+
+    public void Dispose() => _channel.Dispose();
+
+    private sealed record MatchInfoPayload(
+        string MatchId,
+        string QueueName,
+        string GameMode,
+        int PlayerCount,
+        int NpcCount);
 }

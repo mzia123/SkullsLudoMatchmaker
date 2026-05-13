@@ -1,4 +1,4 @@
-using System.Net.Http;
+using Grpc.Net.Client;
 using OpenMatch;
 using Serilog;
 using Serilog.Settings.Configuration;
@@ -15,8 +15,10 @@ builder.Host.UseSerilog((context, loggerConfig) =>
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenAnyIP(WellKnown.Ports.MatchFunction, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
-    options.ListenAnyIP(8080, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1);
+    options.ListenAnyIP(WellKnown.Ports.MatchFunction, o =>
+        o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+    options.ListenAnyIP(8080, o =>
+        o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1);
 });
 
 builder.Services.AddGrpc();
@@ -24,9 +26,9 @@ builder.Services.AddGrpc();
 var omQueryAddress = builder.Configuration.GetValue<string>("Matchmaker:OpenMatch:QueryAddress")
     ?? $"http://{builder.Configuration.GetValue("Matchmaker:OpenMatch:QueryHost", "open-match-query")}:{WellKnown.Ports.OpenMatchQuery}";
 
-builder.Services.AddSingleton(sp =>
+builder.Services.AddSingleton(_ =>
 {
-    var channel = Grpc.Net.Client.GrpcChannel.ForAddress(omQueryAddress, new Grpc.Net.Client.GrpcChannelOptions
+    var channel = GrpcChannel.ForAddress(omQueryAddress, new GrpcChannelOptions
     {
         HttpHandler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true }
     });
@@ -40,7 +42,6 @@ builder.Services.AddSingleton<IMatchStrategy>(new PracticeMatchStrategy());
 builder.Services.AddSingleton<IMatchStrategy>(new QuickplayMatchStrategy(
     queues.GetValueOrDefault(WellKnown.Queues.Quickplay, DefaultQueues.Quickplay)));
 builder.Services.AddSingleton<MatchStrategyResolver>();
-
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
