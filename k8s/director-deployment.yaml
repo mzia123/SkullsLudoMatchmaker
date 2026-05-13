@@ -58,6 +58,9 @@ spec:
             - name: allocator-server-ca
               mountPath: /agones/ca
               readOnly: true
+            - name: queues-config
+              mountPath: /config
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -75,3 +78,9 @@ spec:
         - name: allocator-server-ca
           secret:
             secretName: allocator-server-ca
+        # Shared queue catalogue (see k8s/queues-configmap.yaml). Optional: if absent,
+        # services fall back to DefaultQueues.All in code.
+        - name: queues-config
+          configMap:
+            name: skulls-ludo-queues
+            optional: true

@@ -9,6 +9,9 @@ using SkullsLudo.Shared.Constants;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Shared queue catalogue from the skulls-ludo-queues ConfigMap (optional).
+builder.Configuration.AddJsonFile(QueueConfigLoader.QueuesFilePath, optional: true, reloadOnChange: true);
+
 var readerOptions = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
 builder.Host.UseSerilog((context, loggerConfig) =>
     loggerConfig.ReadFrom.Configuration(context.Configuration, readerOptions));
@@ -35,14 +38,9 @@ builder.Services.AddSingleton(_ =>
     return new QueryService.QueryServiceClient(channel);
 });
 
-var matchmakerSettings = builder.Configuration.GetSection(MatchmakerSettings.SectionName)
-    .Get<MatchmakerSettings>() ?? new MatchmakerSettings();
-
-if (matchmakerSettings.Queues.Count == 0)
-{
-    foreach (var (key, value) in DefaultQueues.All)
-        matchmakerSettings.Queues[key] = value;
-}
+var matchmakerSettings = (builder.Configuration.GetSection(MatchmakerSettings.SectionName)
+    .Get<MatchmakerSettings>() ?? new MatchmakerSettings())
+    .EnsureQueues();
 
 builder.Services.AddSingleton(matchmakerSettings);
 

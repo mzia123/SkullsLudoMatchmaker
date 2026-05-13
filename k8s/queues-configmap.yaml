@@ -1,0 +1,110 @@
+# Queue catalogue for SkullsLudo matchmaker.
+#
+# Mounted at /config/queues.json into the Director, Frontend, and MatchFunction
+# pods. Each service appends this file to its IConfiguration via
+# AddJsonFile("/config/queues.json", optional: true, reloadOnChange: true), so
+# editing this ConfigMap + rolling the deployments is enough to add or change
+# queues -- no image rebuild required.
+#
+# If this ConfigMap is absent, the services fall back to DefaultQueues.All
+# (src/SkullsLudo.Shared/Configuration/DefaultQueues.cs).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skulls-ludo-queues
+  labels:
+    app: skulls-ludo-matchmaker
+    component: matchmaker
+data:
+  queues.json: |
+    {
+      "Matchmaker": {
+        "Queues": {
+          "practice-team": {
+            "Name": "practice-team",
+            "Tag": "queue.practice-team",
+            "Strategy": "solo",
+            "MaxPlayers": 4,
+            "MinPlayers": 1,
+            "Timeout": "00:00:30",
+            "DegradationSteps": []
+          },
+          "practice-nonteam": {
+            "Name": "practice-nonteam",
+            "Tag": "queue.practice-nonteam",
+            "Strategy": "solo",
+            "MaxPlayers": 4,
+            "MinPlayers": 1,
+            "Timeout": "00:00:30",
+            "DegradationSteps": []
+          },
+          "quickplay-team": {
+            "Name": "quickplay-team",
+            "Tag": "queue.quickplay-team",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 2,
+            "Timeout": "00:01:00",
+            "DegradationSteps": [
+              { "After": "00:00:15", "PlayerCount": 2 }
+            ]
+          },
+          "quickplay-nonteam": {
+            "Name": "quickplay-nonteam",
+            "Tag": "queue.quickplay-nonteam",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 2,
+            "Timeout": "00:01:00",
+            "DegradationSteps": [
+              { "After": "00:00:05", "PlayerCount": 3 },
+              { "After": "00:00:15", "PlayerCount": 2 }
+            ]
+          },
+          "classic-team": {
+            "Name": "classic-team",
+            "Tag": "queue.classic-team",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 2,
+            "Timeout": "00:02:00",
+            "DegradationSteps": [
+              { "After": "00:00:30", "PlayerCount": 2 }
+            ]
+          },
+          "classic-nonteam": {
+            "Name": "classic-nonteam",
+            "Tag": "queue.classic-nonteam",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 2,
+            "Timeout": "00:02:00",
+            "DegradationSteps": [
+              { "After": "00:00:20", "PlayerCount": 3 },
+              { "After": "00:00:45", "PlayerCount": 2 }
+            ]
+          },
+          "ranked": {
+            "Name": "ranked",
+            "Tag": "queue.ranked",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 4,
+            "Timeout": "00:05:00",
+            "DegradationSteps": []
+          },
+          "casual": {
+            "Name": "casual",
+            "Tag": "queue.casual",
+            "Strategy": "degrading-mmr",
+            "MaxPlayers": 4,
+            "MinPlayers": 2,
+            "Timeout": "00:02:00",
+            "DegradationSteps": [
+              { "After": "00:00:15", "PlayerCount": 3 },
+              { "After": "00:00:30", "PlayerCount": 2 }
+            ]
+          }
+        }
+      }
+    }

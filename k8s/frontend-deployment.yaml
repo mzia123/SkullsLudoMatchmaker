@@ -42,6 +42,10 @@ spec:
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
+          volumeMounts:
+            - name: queues-config
+              mountPath: /config
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -49,6 +53,13 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        # Shared queue catalogue (see k8s/queues-configmap.yaml). Optional: if absent,
+        # the Frontend falls back to DefaultQueues.All for queue validation.
+        - name: queues-config
+          configMap:
+            name: skulls-ludo-queues
+            optional: true
 ---
 apiVersion: v1
 kind: Service

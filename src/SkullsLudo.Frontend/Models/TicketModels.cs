@@ -5,13 +5,19 @@ namespace SkullsLudo.Frontend.Models;
 public sealed class CreateTicketRequest
 {
     [Required]
+    [StringLength(64, MinimumLength = 1)]
     public required string PlayerId { get; init; }
 
-    [Range(0, double.MaxValue)]
+    [Range(0, 100_000)]
     public required double Mmr { get; init; }
 
+    /// <summary>
+    /// Queue identifier (e.g. <c>classic-team</c>, <c>ranked</c>). Validated at
+    /// runtime against the configured <c>Matchmaker:Queues</c> dictionary, so
+    /// adding a queue requires no code change here.
+    /// </summary>
     [Required]
-    [RegularExpression("^(practice|quickplay)$", ErrorMessage = "Queue must be 'practice' or 'quickplay'.")]
+    [StringLength(64, MinimumLength = 1)]
     public required string Queue { get; init; }
 }
 

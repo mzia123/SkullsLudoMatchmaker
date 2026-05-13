@@ -2,27 +2,17 @@ namespace SkullsLudo.Shared.Constants;
 
 public static class WellKnown
 {
-    public static class Queues
-    {
-        public const string Practice = "practice";
-        public const string Quickplay = "quickplay";
-    }
-
     /// <summary>
     /// Stable identifiers for <c>IMatchStrategy</c> implementations. Queues reference
     /// these via <c>QueueConfiguration.Strategy</c>, so one strategy can serve many
-    /// queues (e.g. <c>DegradingMmr</c> can power both quickplay and ranked).
+    /// queues (e.g. <c>DegradingMmr</c> powers quickplay, classic, ranked, and casual).
+    /// Queue names and tags are config data, not constants &mdash; see
+    /// <c>DefaultQueues</c> and <c>Matchmaker:Queues</c> in <c>appsettings.json</c>.
     /// </summary>
     public static class Strategies
     {
         public const string Solo = "solo";
         public const string DegradingMmr = "degrading-mmr";
-    }
-
-    public static class Tags
-    {
-        public const string PracticeQueue = "queue.practice";
-        public const string QuickplayQueue = "queue.quickplay";
     }
 
     public static class SearchFields

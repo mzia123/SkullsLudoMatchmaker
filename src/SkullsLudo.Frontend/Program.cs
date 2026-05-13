@@ -3,9 +3,15 @@ using Serilog;
 using Serilog.Settings.Configuration;
 using SkullsLudo.Frontend.Endpoints;
 using SkullsLudo.Frontend.Services;
+using SkullsLudo.Shared.Configuration;
 using SkullsLudo.Shared.Constants;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Shared queue catalogue from the skulls-ludo-queues ConfigMap (optional). The
+// CreateTicket endpoint reads Matchmaker:Queues per-request, so a ConfigMap
+// edit becomes effective within the next config-reload tick -- no pod restart.
+builder.Configuration.AddJsonFile(QueueConfigLoader.QueuesFilePath, optional: true, reloadOnChange: true);
 
 var readerOptions = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
 builder.Host.UseSerilog((context, loggerConfig) =>
