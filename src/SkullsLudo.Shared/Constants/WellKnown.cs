@@ -8,6 +8,17 @@ public static class WellKnown
         public const string Quickplay = "quickplay";
     }
 
+    /// <summary>
+    /// Stable identifiers for <c>IMatchStrategy</c> implementations. Queues reference
+    /// these via <c>QueueConfiguration.Strategy</c>, so one strategy can serve many
+    /// queues (e.g. <c>DegradingMmr</c> can power both quickplay and ranked).
+    /// </summary>
+    public static class Strategies
+    {
+        public const string Solo = "solo";
+        public const string DegradingMmr = "degrading-mmr";
+    }
+
     public static class Tags
     {
         public const string PracticeQueue = "queue.practice";

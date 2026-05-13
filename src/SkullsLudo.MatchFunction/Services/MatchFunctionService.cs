@@ -1,11 +1,13 @@
 using Grpc.Core;
 using OpenMatch;
 using SkullsLudo.MatchFunction.Strategies;
+using SkullsLudo.Shared.Configuration;
 
 namespace SkullsLudo.MatchFunction.Services;
 
 public sealed class MatchFunctionService(
     MatchStrategyResolver strategyResolver,
+    MatchmakerSettings settings,
     QueryService.QueryServiceClient queryClient,
     ILogger<MatchFunctionService> logger) : OpenMatch.MatchFunction.MatchFunctionBase
 {
@@ -18,26 +20,39 @@ public sealed class MatchFunctionService(
         logger.LogInformation("MatchFunction invoked for profile {ProfileName} with {PoolCount} pool(s)",
             profile.Name, profile.Pools.Count);
 
-        var strategy = strategyResolver.Resolve(profile.Name);
+        // Profile name is the queue name (Director sets it that way). Look up the
+        // queue, then resolve its configured strategy. Multiple queues may share a
+        // strategy with different parameters.
+        if (!settings.Queues.TryGetValue(profile.Name, out var queueConfig))
+        {
+            logger.LogWarning("No queue configuration for profile {ProfileName}. Known: [{Known}]",
+                profile.Name, string.Join(", ", settings.Queues.Keys));
+            return;
+        }
+
+        var strategy = strategyResolver.Resolve(queueConfig.Strategy);
         if (strategy is null)
         {
-            logger.LogWarning("No strategy registered for profile {ProfileName}. Registered: [{Registered}]",
-                profile.Name, string.Join(", ", strategyResolver.RegisteredQueues));
+            logger.LogWarning(
+                "Queue {Queue} references unknown strategy '{Strategy}'. Registered: [{Registered}]",
+                profile.Name, queueConfig.Strategy, string.Join(", ", strategyResolver.RegisteredStrategies));
             return;
         }
 
         var poolTickets = await QueryPoolsAsync(profile, context.CancellationToken);
 
         var totalTickets = poolTickets.Values.Sum(t => t.Count);
-        logger.LogInformation("Queried {TotalTickets} ticket(s) across {PoolCount} pool(s) for {ProfileName}",
-            totalTickets, poolTickets.Count, profile.Name);
+        logger.LogInformation(
+            "Queried {TotalTickets} ticket(s) across {PoolCount} pool(s) for {ProfileName} (strategy={Strategy})",
+            totalTickets, poolTickets.Count, profile.Name, strategy.Name);
 
         if (totalTickets == 0)
             return;
 
-        var matches = strategy.CreateMatches(profile, poolTickets);
-        logger.LogInformation("Strategy {Strategy} produced {MatchCount} match proposal(s) for {ProfileName}",
-            strategy.GetType().Name, matches.Count, profile.Name);
+        var matches = strategy.CreateMatches(profile, poolTickets, queueConfig);
+        logger.LogInformation(
+            "Strategy {Strategy} produced {MatchCount} match proposal(s) for {ProfileName}",
+            strategy.Name, matches.Count, profile.Name);
 
         foreach (var match in matches)
         {

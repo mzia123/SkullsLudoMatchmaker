@@ -5,24 +5,30 @@ using SkullsLudo.Shared.Constants;
 
 namespace SkullsLudo.MatchFunction.Strategies;
 
-public sealed class QuickplayMatchStrategy(QueueConfiguration config) : IMatchStrategy
+/// <summary>
+/// MMR-proximity grouping with degrading target sizes. Starts at
+/// <see cref="QueueConfiguration.MaxPlayers"/>, then falls back through each
+/// <see cref="QueueConfiguration.DegradationSteps"/> entry as tickets age.
+/// Stateless and reusable across any multi-player queue (quickplay, ranked, ...).
+/// </summary>
+public sealed class DegradingMmrMatchStrategy : IMatchStrategy
 {
-    public string QueueName => WellKnown.Queues.Quickplay;
+    public string Name => WellKnown.Strategies.DegradingMmr;
 
     public IReadOnlyList<Match> CreateMatches(
         MatchProfile profile,
-        IDictionary<string, IList<Ticket>> poolTickets)
+        IDictionary<string, IList<Ticket>> poolTickets,
+        QueueConfiguration queueConfig)
     {
-        var allTickets = poolTickets.Values.SelectMany(t => t).ToList();
+        var sortedByMmr = poolTickets.Values.SelectMany(t => t)
+            .OrderBy(t => t.SearchFields.DoubleArgs.GetValueOrDefault(WellKnown.SearchFields.Mmr, 0))
+            .ToList();
+
         var now = DateTime.UtcNow;
         var used = new HashSet<string>();
         var matches = new List<Match>();
 
-        var sortedByMmr = allTickets
-            .OrderBy(t => t.SearchFields.DoubleArgs.GetValueOrDefault(WellKnown.SearchFields.Mmr, 0))
-            .ToList();
-
-        foreach (var (requiredAge, playerCount) in BuildTargetSizes())
+        foreach (var (requiredAge, playerCount) in BuildTargetSizes(queueConfig))
         {
             var eligible = sortedByMmr
                 .Where(t => !used.Contains(t.Id) && TicketAge(t, now) >= requiredAge)
@@ -32,14 +38,14 @@ public sealed class QuickplayMatchStrategy(QueueConfiguration config) : IMatchSt
             {
                 var match = new Match
                 {
-                    MatchId = $"quickplay-{playerCount}p-{Guid.NewGuid():N}",
+                    MatchId = $"{queueConfig.Name}-{playerCount}p-{Guid.NewGuid():N}",
                     MatchProfile = profile.Name,
-                    MatchFunction = nameof(QuickplayMatchStrategy)
+                    MatchFunction = Name,
+                    Tickets = { group }
                 };
-                match.Tickets.AddRange(group);
                 match.Extensions[WellKnown.Extensions.ScoreKey] = Any.Pack(new DoubleValue { Value = MatchScoring.Calculate(group) });
                 match.Extensions[WellKnown.Extensions.PlayerCountKey] = Any.Pack(new Int32Value { Value = group.Count });
-                match.Extensions[WellKnown.Extensions.QueueKey] = Any.Pack(new StringValue { Value = QueueName });
+                match.Extensions[WellKnown.Extensions.QueueKey] = Any.Pack(new StringValue { Value = queueConfig.Name });
 
                 matches.Add(match);
                 foreach (var t in group) used.Add(t.Id);
@@ -49,7 +55,7 @@ public sealed class QuickplayMatchStrategy(QueueConfiguration config) : IMatchSt
         return matches;
     }
 
-    private List<(TimeSpan RequiredAge, int PlayerCount)> BuildTargetSizes()
+    private static List<(TimeSpan RequiredAge, int PlayerCount)> BuildTargetSizes(QueueConfiguration config)
     {
         var targets = new List<(TimeSpan, int)> { (TimeSpan.Zero, config.MaxPlayers) };
 
@@ -64,23 +70,19 @@ public sealed class QuickplayMatchStrategy(QueueConfiguration config) : IMatchSt
         if (eligible.Count < groupSize)
             return [];
 
-        var sorted = eligible
-            .OrderBy(t => t.SearchFields.DoubleArgs.GetValueOrDefault(WellKnown.SearchFields.Mmr, 0))
-            .ToList();
-
         var results = new List<List<Ticket>>();
         var usedInPass = new HashSet<string>();
 
-        for (var i = 0; i <= sorted.Count - groupSize; i++)
+        for (var i = 0; i <= eligible.Count - groupSize; i++)
         {
-            if (usedInPass.Contains(sorted[i].Id))
+            if (usedInPass.Contains(eligible[i].Id))
                 continue;
 
             var group = new List<Ticket>();
-            for (var j = i; j < sorted.Count && group.Count < groupSize; j++)
+            for (var j = i; j < eligible.Count && group.Count < groupSize; j++)
             {
-                if (!usedInPass.Contains(sorted[j].Id))
-                    group.Add(sorted[j]);
+                if (!usedInPass.Contains(eligible[j].Id))
+                    group.Add(eligible[j]);
             }
 
             if (group.Count == groupSize)

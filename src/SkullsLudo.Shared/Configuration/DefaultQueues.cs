@@ -1,11 +1,14 @@
+using SkullsLudo.Shared.Constants;
+
 namespace SkullsLudo.Shared.Configuration;
 
 public static class DefaultQueues
 {
     public static QueueConfiguration Practice => new()
     {
-        Name = "practice",
-        Tag = "queue.practice",
+        Name = WellKnown.Queues.Practice,
+        Tag = WellKnown.Tags.PracticeQueue,
+        Strategy = WellKnown.Strategies.Solo,
         MaxPlayers = 1,
         MinPlayers = 1,
         Timeout = TimeSpan.FromMinutes(2),
@@ -14,8 +17,9 @@ public static class DefaultQueues
 
     public static QueueConfiguration Quickplay => new()
     {
-        Name = "quickplay",
-        Tag = "queue.quickplay",
+        Name = WellKnown.Queues.Quickplay,
+        Tag = WellKnown.Tags.QuickplayQueue,
+        Strategy = WellKnown.Strategies.DegradingMmr,
         MaxPlayers = 4,
         MinPlayers = 2,
         Timeout = TimeSpan.FromMinutes(2),
@@ -28,7 +32,7 @@ public static class DefaultQueues
 
     public static Dictionary<string, QueueConfiguration> All => new()
     {
-        ["practice"] = Practice,
-        ["quickplay"] = Quickplay
+        [WellKnown.Queues.Practice] = Practice,
+        [WellKnown.Queues.Quickplay] = Quickplay
     };
 }

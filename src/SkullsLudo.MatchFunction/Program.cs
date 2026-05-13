@@ -35,12 +35,21 @@ builder.Services.AddSingleton(_ =>
     return new QueryService.QueryServiceClient(channel);
 });
 
-var queues = builder.Configuration.GetSection("Matchmaker:Queues")
-    .Get<Dictionary<string, QueueConfiguration>>() ?? DefaultQueues.All;
+var matchmakerSettings = builder.Configuration.GetSection(MatchmakerSettings.SectionName)
+    .Get<MatchmakerSettings>() ?? new MatchmakerSettings();
 
-builder.Services.AddSingleton<IMatchStrategy>(new PracticeMatchStrategy());
-builder.Services.AddSingleton<IMatchStrategy>(new QuickplayMatchStrategy(
-    queues.GetValueOrDefault(WellKnown.Queues.Quickplay, DefaultQueues.Quickplay)));
+if (matchmakerSettings.Queues.Count == 0)
+{
+    foreach (var (key, value) in DefaultQueues.All)
+        matchmakerSettings.Queues[key] = value;
+}
+
+builder.Services.AddSingleton(matchmakerSettings);
+
+// Strategies are stateless and queue-agnostic. Queues bind to a strategy by name
+// via QueueConfiguration.Strategy, so one strategy can serve many queues.
+builder.Services.AddSingleton<IMatchStrategy, SoloMatchStrategy>();
+builder.Services.AddSingleton<IMatchStrategy, DegradingMmrMatchStrategy>();
 builder.Services.AddSingleton<MatchStrategyResolver>();
 builder.Services.AddHealthChecks();
 
