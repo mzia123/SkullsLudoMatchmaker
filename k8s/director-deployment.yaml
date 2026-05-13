@@ -20,7 +20,12 @@ spec:
         - name: director
           image: docker.io/library/skulls-ludo-matchmaker-director:latest
           imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+              name: http
           env:
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
             - name: Matchmaker__OpenMatch__BackendHost
               value: "open-match-backend.open-match.svc.cluster.local"
             - name: Matchmaker__OpenMatch__BackendPort
@@ -51,6 +56,22 @@ spec:
               value: "/agones/certs/tls.key"
             - name: Matchmaker__Agones__ServerCaPath
               value: "/agones/ca/ca.crt"
+            - name: Matchmaker__Agones__AllocationTimeoutSeconds
+              value: "15"
+            - name: Matchmaker__Director__LoopIntervalMs
+              value: "5000"
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: allocator-client-tls
               mountPath: /agones/certs
@@ -70,7 +91,7 @@ spec:
               memory: 256Mi
       volumes:
         # Client cert + key used by the Director to authenticate to agones-allocator.
-        # Provisioned via the `allocator-client-tls` Secret (see k8s/allocator-rbac.yaml).
+        # Create Secret `allocator-client-tls` (e.g. Helm or scripts/setup-allocator-mtls.ps1).
         - name: allocator-client-tls
           secret:
             secretName: allocator-client-tls

@@ -18,7 +18,8 @@ public static class MatchScoring
             2 => 0.3,
             _ => 0.1
         };
-        return baseScore + MmrProximityBonus(tickets);
+        // Cap MMR bonus so full lobbies are not consistently outranked by tight 2-player MMR pairs.
+        return baseScore + Math.Min(0.2, MmrProximityBonus(tickets));
     }
 
     private static double MmrProximityBonus(IReadOnlyList<Ticket> tickets)

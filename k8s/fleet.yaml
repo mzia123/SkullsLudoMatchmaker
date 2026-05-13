@@ -4,8 +4,8 @@
 #   - Director allocates with selector { agones.dev/fleet: ludo-prod-fleet }
 #     (Agones auto-applies that label to every GameServer of this fleet).
 #   - Director stamps annotations on the allocated GameServer:
-#       sl/match-id, sl/queue-name, sl/game-mode, sl/player-count,
-#       sl/npc-count, sl/match-json, sl/ticket-ids
+#       sl/match-id, sl/queue-name, sl/player-count, sl/npc-count,
+#       sl/match-json, sl/ticket-ids
 #     The Unity server is expected to read these via the Agones SDK.
 #   - The SL_* env vars below are *fallback defaults* if reading from
 #     the matchmaker fails. They MUST remain valid for solo play.

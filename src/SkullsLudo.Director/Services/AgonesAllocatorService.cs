@@ -48,7 +48,7 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
         var prefix = _settings.AnnotationPrefix;
 
         var matchJson = JsonSerializer.Serialize(new MatchInfoPayload(
-            match.MatchId, queueName, queueName, playerCount, npcCount), JsonOptions);
+            match.MatchId, queueName, playerCount, npcCount), JsonOptions);
 
         var request = new AllocationRequest
         {
@@ -68,7 +68,6 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
                 {
                     [$"{prefix}/match-id"] = match.MatchId,
                     [$"{prefix}/queue-name"] = queueName,
-                    [$"{prefix}/game-mode"] = queueName,
                     [$"{prefix}/player-count"] = playerCount.ToString(),
                     [$"{prefix}/npc-count"] = npcCount.ToString(),
                     [$"{prefix}/match-json"] = matchJson,
@@ -187,7 +186,6 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
     private sealed record MatchInfoPayload(
         string MatchId,
         string QueueName,
-        string GameMode,
         int PlayerCount,
         int NpcCount);
 }

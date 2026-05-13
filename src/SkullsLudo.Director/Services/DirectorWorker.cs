@@ -100,27 +100,39 @@ public sealed class DirectorWorker(
             assignment.Extensions[WellKnown.Extensions.PlayerCountKey] = pcAny;
 
         var ticketIds = match.Tickets.Select(t => t.Id).ToList();
-        var response = await backendClient.AssignTicketsAsync(new AssignTicketsRequest
-        {
-            Assignments =
-            {
-                new AssignmentGroup
-                {
-                    Assignment = assignment,
-                    TicketIds = { ticketIds }
-                }
-            }
-        }, cancellationToken: ct);
 
-        if (response.Failures.Count > 0)
+        // On AssignTickets failure the allocated GameServer is orphaned. The Unity server self-terminates
+        // via the Agones SDK after an idle timeout, and the Fleet replaces it -- no recycle call from here.
+        try
         {
-            foreach (var f in response.Failures)
-                logger.LogWarning("Assign failed for ticket {TicketId}: {Cause}", f.TicketId, f.Cause);
-        }
-        else
-        {
+            var response = await backendClient.AssignTicketsAsync(new AssignTicketsRequest
+            {
+                Assignments =
+                {
+                    new AssignmentGroup
+                    {
+                        Assignment = assignment,
+                        TicketIds = { ticketIds }
+                    }
+                }
+            }, cancellationToken: ct);
+
+            if (response.Failures.Count > 0)
+            {
+                foreach (var f in response.Failures)
+                    logger.LogWarning("Assign failed for ticket {TicketId}: {Cause}", f.TicketId, f.Cause);
+
+                await ReleaseTicketsAsync(match, ct);
+                return;
+            }
+
             logger.LogInformation("Assigned {Count} ticket(s) to {Connection} for {MatchId}",
                 ticketIds.Count, allocation.Connection, match.MatchId);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "AssignTickets RPC failed for match {MatchId}", match.MatchId);
+            await ReleaseTicketsAsync(match, ct);
         }
     }
 
@@ -131,6 +143,12 @@ public sealed class DirectorWorker(
             await backendClient.ReleaseTicketsAsync(
                 new ReleaseTicketsRequest { TicketIds = { match.Tickets.Select(t => t.Id) } },
                 cancellationToken: ct);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            logger.LogWarning(ex,
+                "ReleaseTickets unavailable for match {MatchId}; tickets may reconcile on the next cycle",
+                match.MatchId);
         }
         catch (Exception ex)
         {

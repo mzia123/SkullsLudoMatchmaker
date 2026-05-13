@@ -28,17 +28,21 @@ spec:
               value: "Production"
             - name: Matchmaker__OpenMatch__FrontendHost
               value: "open-match-frontend.open-match.svc.cluster.local"
-            - name: Matchmaker__OpenMatch__FrontendPort
-              value: "50504"
+            - name: Matchmaker__Frontend__TicketSearchTimeoutSeconds
+              value: "120"
+            - name: Matchmaker__Frontend__CreateTicketRateLimitPermits
+              value: "1"
+            - name: Matchmaker__Frontend__CreateTicketRateLimitWindowSeconds
+              value: "10"
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /healthz/live
               port: 8080
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /healthz/ready
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
@@ -69,6 +73,9 @@ metadata:
     app: skulls-ludo-frontend
 spec:
   type: LoadBalancer
+  # Preserve client source IP so the Frontend's per-IP rate limiter is meaningful.
+  # Without this the limiter partitions by node IP and every request looks like the same caller.
+  externalTrafficPolicy: Local
   ports:
     - port: 80
       targetPort: 8080

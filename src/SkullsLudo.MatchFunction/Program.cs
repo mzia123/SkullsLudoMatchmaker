@@ -1,7 +1,11 @@
 using Grpc.Net.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenMatch;
 using Serilog;
 using Serilog.Settings.Configuration;
+using SkullsLudo.MatchFunction.Health;
 using SkullsLudo.MatchFunction.Services;
 using SkullsLudo.MatchFunction.Strategies;
 using SkullsLudo.Shared.Configuration;
@@ -9,8 +13,7 @@ using SkullsLudo.Shared.Constants;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Shared queue catalogue from the skulls-ludo-queues ConfigMap (optional).
-builder.Configuration.AddJsonFile(QueueConfigLoader.QueuesFilePath, optional: true, reloadOnChange: true);
+builder.Configuration.AddJsonFile(QueueConfigLoader.QueuesFilePath, optional: true, reloadOnChange: false);
 
 var readerOptions = new ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly);
 builder.Host.UseSerilog((context, loggerConfig) =>
@@ -44,16 +47,24 @@ var matchmakerSettings = (builder.Configuration.GetSection(MatchmakerSettings.Se
 
 builder.Services.AddSingleton(matchmakerSettings);
 
-// Strategies are stateless and queue-agnostic. Queues bind to a strategy by name
-// via QueueConfiguration.Strategy, so one strategy can serve many queues.
 builder.Services.AddSingleton<IMatchStrategy, SoloMatchStrategy>();
 builder.Services.AddSingleton<IMatchStrategy, DegradingMmrMatchStrategy>();
 builder.Services.AddSingleton<MatchStrategyResolver>();
-builder.Services.AddHealthChecks();
+
+builder.Services.AddSingleton<OpenMatchQueryTcpHealthCheck>();
+builder.Services.AddHealthChecks()
+    .AddCheck("live", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddCheck<OpenMatchQueryTcpHealthCheck>("open-match-query", tags: ["ready"]);
+
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+app.UseCors();
+app.MapOpenApi();
 app.MapGrpcService<MatchFunctionService>();
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") });
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") });
 
 app.Run();

@@ -15,3 +15,8 @@ data:
       enabled: true
       registrationIntervalMs: 1500
       proposalCollectionIntervalMs: 3000
+    # Redis TTL on every ticket key. Default upstream is 43200 s (12 h). 1 hour is plenty
+    # for Ludo: search ceiling is 2 min, the longest game is well under an hour, and a
+    # tighter TTL keeps abandoned/timed-out tickets from accumulating in Redis.
+    redis:
+      expiration: 3600

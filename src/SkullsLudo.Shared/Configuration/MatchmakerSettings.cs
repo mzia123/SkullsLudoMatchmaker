@@ -8,6 +8,7 @@ public sealed class MatchmakerSettings
     public AgonesSettings Agones { get; init; } = new();
     public MatchFunctionSettings MatchFunction { get; init; } = new();
     public DirectorSettings Director { get; init; } = new();
+    public FrontendSettings Frontend { get; init; } = new();
     public Dictionary<string, QueueConfiguration> Queues { get; init; } = new();
 }
 
@@ -32,7 +33,7 @@ public sealed class AgonesSettings
     public string ClientKeyPath { get; init; } = "/agones/certs/tls.key";
     public string ServerCaPath { get; init; } = "/agones/ca/ca.crt";
 
-    public int AllocationTimeoutSeconds { get; init; } = 5;
+    public int AllocationTimeoutSeconds { get; init; } = 15;
 
     public string AnnotationPrefix { get; init; } = "sl";
 }
@@ -46,4 +47,16 @@ public sealed class MatchFunctionSettings
 public sealed class DirectorSettings
 {
     public int LoopIntervalMs { get; init; } = 5000;
+}
+
+public sealed class FrontendSettings
+{
+    /// <summary>How long a ticket may stay in <c>searching</c> before the API reports timeout.</summary>
+    public int TicketSearchTimeoutSeconds { get; init; } = 120;
+
+    /// <summary>Allowed <c>POST /tickets</c> requests per <see cref="RateLimitWindowSeconds"/> per remote IP.</summary>
+    public int CreateTicketRateLimitPermits { get; init; } = 1;
+
+    /// <summary>Window size for the create-ticket rate limit (seconds).</summary>
+    public int CreateTicketRateLimitWindowSeconds { get; init; } = 10;
 }

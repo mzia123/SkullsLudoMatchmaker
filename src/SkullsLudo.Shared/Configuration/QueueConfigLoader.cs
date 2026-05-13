@@ -4,9 +4,9 @@ public static class QueueConfigLoader
 {
     /// <summary>
     /// Path of the queue catalogue file mounted from the <c>skulls-ludo-queues</c>
-    /// Kubernetes ConfigMap. Each matchmaker service registers this as an optional
-    /// JSON configuration source, so a single ConfigMap edit + rollout propagates
-    /// queue changes without an image rebuild. If the file is absent the services
+    /// Kubernetes ConfigMap. Services load it once at startup (<c>reloadOnChange: false</c> in
+    /// <c>Program.cs</c>); update queues by editing the ConfigMap and rolling the deployments.
+    /// If the file is absent, services
     /// fall back to <see cref="DefaultQueues.All"/> via <see cref="EnsureQueues"/>.
     /// </summary>
     public const string QueuesFilePath = "/config/queues.json";

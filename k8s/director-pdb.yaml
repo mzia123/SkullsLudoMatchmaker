@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: skulls-ludo-director
+  labels:
+    app: skulls-ludo-director
+    component: matchmaker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: skulls-ludo-director

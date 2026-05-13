@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
 using Serilog.Settings.Configuration;
 using SkullsLudo.Evaluator.Services;
@@ -11,16 +14,23 @@ builder.Host.UseSerilog((context, loggerConfig) =>
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenAnyIP(WellKnown.Ports.Evaluator, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
-    options.ListenAnyIP(8080, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1);
+    options.ListenAnyIP(WellKnown.Ports.Evaluator, o => o.Protocols = HttpProtocols.Http2);
+    options.ListenAnyIP(8080, o => o.Protocols = HttpProtocols.Http1);
 });
 
 builder.Services.AddGrpc();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck("live", () => HealthCheckResult.Healthy(), tags: ["live", "ready"]);
+
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+app.UseCors();
+app.MapOpenApi();
 app.MapGrpcService<EvaluatorService>();
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") });
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") });
 
 app.Run();

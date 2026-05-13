@@ -60,7 +60,11 @@ public sealed class DegradingMmrMatchStrategy : IMatchStrategy
         var targets = new List<(TimeSpan, int)> { (TimeSpan.Zero, config.MaxPlayers) };
 
         foreach (var step in config.DegradationSteps.OrderBy(s => s.After))
+        {
+            if (step.PlayerCount < config.MinPlayers)
+                continue;
             targets.Add((step.After, step.PlayerCount));
+        }
 
         return targets;
     }
