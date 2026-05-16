@@ -1,13 +1,17 @@
 # Skulls Ludo Matchmaker
 Skulls Ludo matchmaker and server allocator, built using Open Match and agones using C# .NET 10 LTS.
+
 ## Development Setup
+
 ### Requirenment
 1. Minikube
 2. Helm
 3. Docker
 4. .NET 10 LTS
 5. OpenSSL
+
 ### Steps
+
 1. Use minikube to create kubernetes cluster. If using docker drivers make sure to open UDP ports for the gameservers i.e. 
 ```powershell
 minikube start -p skulls-mm --kubernetes-version v1.34.6 --ports=8080:8080/tcp --ports=7000-7100:7000-7100/udp
@@ -316,7 +320,7 @@ Frontend-specific settings under `Matchmaker:Frontend` in `appsettings.json` / d
 
 Open Match gRPC target: `Matchmaker:OpenMatch:FrontendHost` / `FrontendPort` (default `open-match-frontend…:50504`).
 
-### Queue configuration and updates
+## Queue configuration and updates
 
 Matchmaking queues are **configuration data**, not code. The canonical source in Kubernetes is [`k8s/queues-configmap.yaml`](k8s/queues-configmap.yaml), which creates ConfigMap `skulls-ludo-queues` with key `queues.json`.
 
@@ -330,7 +334,7 @@ Three services mount that file at `/config/queues.json` and load it at startup:
 
 If the ConfigMap is missing, all three fall back to [`DefaultQueues.cs`](src/SkullsLudo.Shared/Configuration/DefaultQueues.cs). Keep that file in sync when you change defaults for local `dotnet run`.
 
-#### Queue entry schema
+### Queue entry schema
 
 Each key under `Matchmaker.Queues` is the queue id clients send in API requests (e.g. `quickplay-nonteam`). The value fields:
 
@@ -362,7 +366,7 @@ Example — add a experimental queue:
 
 `Tag` must be unique per queue. `Strategy` must be implemented in the MatchFunction (`solo`, `degrading-mmr` today).
 
-#### Apply changes
+### Apply changes
 
 Configuration is read **once at pod start** (`reloadOnChange: false`). Editing the live ConfigMap does not update running pods; roll them after you apply.
 
@@ -393,7 +397,7 @@ kubectl exec deploy/skulls-ludo-frontend -- cat /config/queues.json
 
 4. Smoke-test: create a ticket with the new queue name via [`scripts/frontend/create-ticket.ps1`](scripts/frontend/create-ticket.ps1). An unknown queue returns `400` with the list of valid keys.
 
-#### Notes
+### Notes
 
 - **No image rebuild** is required for queue-only changes — only the ConfigMap and rollout above.
 - **Renaming or removing** a queue does not cancel tickets already in Open Match with the old tag; drain or wait for timeouts before deleting a queue clients still use.
