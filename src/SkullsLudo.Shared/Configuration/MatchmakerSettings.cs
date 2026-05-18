@@ -9,6 +9,7 @@ public sealed class MatchmakerSettings
     public MatchFunctionSettings MatchFunction { get; init; } = new();
     public DirectorSettings Director { get; init; } = new();
     public FrontendSettings Frontend { get; init; } = new();
+    public UnityAuthenticationSettings UnityAuth { get; init; } = new();
     public Dictionary<string, QueueConfiguration> Queues { get; init; } = new();
 }
 
@@ -59,4 +60,25 @@ public sealed class FrontendSettings
 
     /// <summary>Window size for the create-ticket rate limit (seconds).</summary>
     public int CreateTicketRateLimitWindowSeconds { get; init; } = 10;
+}
+
+public sealed class UnityAuthenticationSettings
+{
+    public bool Enabled { get; init; } = true;
+
+    public string JwksUri { get; init; } = "https://player-auth.services.api.unity.com/.well-known/jwks.json";
+
+    public string ValidIssuer { get; init; } = "https://player-auth.services.api.unity.com";
+
+    public string? ValidAudience { get; init; }
+
+    public string? ValidProjectId { get; init; }
+
+    public int JwksCacheTtlHours { get; init; } = 8;
+
+    public string PlayerIdClaim { get; init; } = "sub";
+
+    public string DebugPlayerIdHeader { get; init; } = "X-Debug-Player-Id";
+
+    public string DefaultDebugPlayerId { get; init; } = "dev-player";
 }

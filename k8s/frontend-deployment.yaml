@@ -34,6 +34,12 @@ spec:
               value: "1"
             - name: Matchmaker__Frontend__CreateTicketRateLimitWindowSeconds
               value: "10"
+            - name: Matchmaker__OpenMatch__QueryHost
+              value: "open-match-query.open-match.svc.cluster.local"
+            - name: Matchmaker__OpenMatch__QueryPort
+              value: "50503"
+            - name: Matchmaker__UnityAuth__Enabled
+              value: "true"
           livenessProbe:
             httpGet:
               path: /healthz/live

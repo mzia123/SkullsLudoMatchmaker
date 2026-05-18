@@ -1,4 +1,4 @@
-using Grpc.Net.Client;
+using Agones.Allocation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -8,6 +8,7 @@ using Serilog.Settings.Configuration;
 using SkullsLudo.Director.Health;
 using SkullsLudo.Director.Services;
 using SkullsLudo.Shared.Configuration;
+using SkullsLudo.Shared.Constants;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,20 +29,31 @@ var matchmakerSettings = (builder.Configuration.GetSection(MatchmakerSettings.Se
 
 builder.Services.AddSingleton(matchmakerSettings);
 
-var handler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true };
+var omBackendAddress = builder.Configuration.GetValue<string>("Matchmaker:OpenMatch:BackendAddress")
+    ?? $"http://{matchmakerSettings.OpenMatch.BackendHost}:{matchmakerSettings.OpenMatch.BackendPort}";
 
-var backendChannel = GrpcChannel.ForAddress(
-    $"http://{matchmakerSettings.OpenMatch.BackendHost}:{matchmakerSettings.OpenMatch.BackendPort}",
-    new GrpcChannelOptions { HttpHandler = handler });
-builder.Services.AddSingleton(new BackendService.BackendServiceClient(backendChannel));
+var omQueryAddress = builder.Configuration.GetValue<string>("Matchmaker:OpenMatch:QueryAddress")
+    ?? $"http://{matchmakerSettings.OpenMatch.QueryHost}:{matchmakerSettings.OpenMatch.QueryPort}";
 
-var queryChannel = GrpcChannel.ForAddress(
-    $"http://{matchmakerSettings.OpenMatch.QueryHost}:{matchmakerSettings.OpenMatch.QueryPort}",
-    new GrpcChannelOptions { HttpHandler = handler });
-builder.Services.AddSingleton(new QueryService.QueryServiceClient(queryChannel));
+builder.Services.AddGrpcClient<BackendService.BackendServiceClient>(o => o.Address = new Uri(omBackendAddress))
+    .ConfigurePrimaryHttpMessageHandler(CreateOpenMatchHandler);
 
-builder.Services.AddSingleton<IGameServerAllocator>(sp =>
-    new AgonesAllocatorService(matchmakerSettings.Agones, sp.GetRequiredService<ILogger<AgonesAllocatorService>>()));
+builder.Services.AddGrpcClient<QueryService.QueryServiceClient>(o => o.Address = new Uri(omQueryAddress))
+    .ConfigurePrimaryHttpMessageHandler(CreateOpenMatchHandler);
+
+builder.Services.AddGrpcClient<AllocationService.AllocationServiceClient>((sp, o) =>
+{
+    var agones = sp.GetRequiredService<MatchmakerSettings>().Agones;
+    o.Address = new Uri($"https://{agones.AllocatorHost}:{agones.AllocatorPort}");
+})
+.ConfigurePrimaryHttpMessageHandler(sp =>
+{
+    var settings = sp.GetRequiredService<MatchmakerSettings>().Agones;
+    var logger = sp.GetRequiredService<ILogger<AgonesAllocatorService>>();
+    return AgonesAllocatorService.CreateHttpHandler(settings, logger);
+});
+
+builder.Services.AddSingleton<IGameServerAllocator, AgonesAllocatorService>();
 
 builder.Services.AddSingleton<OpenMatchBackendTcpHealthCheck>();
 builder.Services.AddHealthChecks()
@@ -62,3 +74,6 @@ app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = r => r
 app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") });
 
 await app.RunAsync();
+
+static SocketsHttpHandler CreateOpenMatchHandler() =>
+    new() { EnableMultipleHttp2Connections = true };
