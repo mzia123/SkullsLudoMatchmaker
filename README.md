@@ -128,6 +128,21 @@ The **Skulls Ludo Frontend** (`SkullsLudo.Frontend`) is the player-facing HTTP A
 
 Set `SKULLS_FRONTEND_URL` or pass `-BaseUrl` to the scripts under [`scripts/frontend`](scripts/frontend) to override the default.
 
+### Authentication
+
+All matchmaking routes require authentication.
+
+| Mode | Config | How to authenticate |
+|------|--------|---------------------|
+| **Production** | `Matchmaker:UnityAuth:Enabled=true` | `Authorization: Bearer <Unity idToken>` — player id from JWT `sub` |
+| **Dev / test** | `Matchmaker:UnityAuth:Enabled=false` | `X-Debug-Player-Id: <playerId>` header (simulate multiple players); if omitted, uses `DefaultDebugPlayerId` (`dev-player`) |
+
+Unity JWKS: `https://player-auth.services.api.unity.com/.well-known/jwks.json` (cached in-memory, refreshed lazily after 8h or unknown `kid`).
+
+Test scripts: set `$env:SKULLS_UNITY_ID_TOKEN` for Bearer auth, or pass `-PlayerId` / `$env:SKULLS_DEBUG_PLAYER_ID` for dev bypass.
+
+**One ticket per player:** `POST` returns `409` if the player already has an active ticket. Cancel it with `DELETE` before creating another.
+
 ### Matchmaking API
 
 All routes are under `/api/matchmaking/tickets`.
@@ -140,11 +155,8 @@ Enqueue a player for matchmaking.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `playerId` | string | yes | 1–64 characters |
 | `mmr` | number | yes | 0–100000 |
 | `queue` | string | yes | Must match a key in `Matchmaker:Queues` (see [Queues](#queues) below) |
-
-**Optional header:** `Idempotency-Key` — if the same key is reused with the same payload within one hour, the API returns the original ticket (`201`) instead of creating a duplicate. Reusing the key with a different payload returns `409 Conflict`.
 
 **Responses:**
 
@@ -152,22 +164,33 @@ Enqueue a player for matchmaking.
 |--------|------|
 | `201 Created` | `{ "ticketId": "<uuid>" }` — `Location` header points to the ticket URL |
 | `400` | Validation problem (unknown queue, invalid fields) |
-| `409` | Idempotency key reused with different payload |
+| `401` | Missing or invalid Unity idToken (when auth enabled) |
+| `409` | Player already has an active ticket |
 | `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)) |
 
-**Example:**
+**Example (dev bypass):**
 
 ```powershell
-$body = @{ playerId = "alice"; mmr = 1500; queue = "quickplay-nonteam" } | ConvertTo-Json
+$body = @{ mmr = 1500; queue = "quickplay-nonteam" } | ConvertTo-Json
 Invoke-RestMethod -Method POST -Uri "$env:SKULLS_FRONTEND_URL/api/matchmaking/tickets" `
-    -ContentType "application/json" -Body $body
+    -ContentType "application/json" -Body $body -Headers @{ "X-Debug-Player-Id" = "alice" }
 ```
 
 ```bash
 export SKULLS_FRONTEND_URL=http://localhost:19503
 curl -sS -X POST "${SKULLS_FRONTEND_URL}/api/matchmaking/tickets" \
   -H "Content-Type: application/json" \
-  -d '{"playerId":"alice","mmr":1500,"queue":"quickplay-nonteam"}'
+  -H "X-Debug-Player-Id: alice" \
+  -d '{"mmr":1500,"queue":"quickplay-nonteam"}'
+```
+
+**Example (Unity idToken):**
+
+```bash
+curl -sS -X POST "${SKULLS_FRONTEND_URL}/api/matchmaking/tickets" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${SKULLS_UNITY_ID_TOKEN}" \
+  -d '{"mmr":1500,"queue":"quickplay-nonteam"}'
 ```
 
 Or: `.\scripts\frontend\create-ticket.ps1 -PlayerId alice -Mmr 1500 -Queue quickplay-nonteam`
@@ -181,21 +204,25 @@ Poll matchmaking status. Clients should call this on an interval (e.g. every 2�
 | Status | Body |
 |--------|------|
 | `200 OK` | See [Ticket status](#ticket-status) |
-| `404` | Ticket not found (deleted, expired, or invalid id) |
+| `404` | Ticket not found, not owned by caller, deleted, or expired |
 
 When status becomes `timeout`, the Frontend deletes the Open Match ticket automatically; further polls return `404`.
 
 **Example:**
 
 ```powershell
-Invoke-RestMethod -Method GET -Uri "$env:SKULLS_FRONTEND_URL/api/matchmaking/tickets/<ticketId>"
+Invoke-RestMethod -Method GET -Uri "$env:SKULLS_FRONTEND_URL/api/matchmaking/tickets/<ticketId>" `
+    -Headers @{ "X-Debug-Player-Id" = "alice" }
 ```
 
 ```bash
-curl -sS "${SKULLS_FRONTEND_URL}/api/matchmaking/tickets/<ticketId>"
+curl -sS "${SKULLS_FRONTEND_URL}/api/matchmaking/tickets/<ticketId>" \
+  -H "X-Debug-Player-Id: alice"
 ```
 
-Or: `.\scripts\frontend\get-ticket.ps1 -TicketId <ticketId>` — `.\scripts\frontend\poll-ticket.ps1` loops until `matched` or `timeout`.
+Tickets belong to the authenticated player; other players receive `404`.
+
+Or: `.\scripts\frontend\get-ticket.ps1 -TicketId <ticketId> -PlayerId alice` — `.\scripts\frontend\poll-ticket.ps1` loops until `matched` or `timeout`.
 
 #### `DELETE /api/matchmaking/tickets/{ticketId}`
 
@@ -212,15 +239,17 @@ Cancel an in-progress search.
 **Example:**
 
 ```powershell
-Invoke-WebRequest -Method DELETE -Uri "$env:SKULLS_FRONTEND_URL/api/matchmaking/tickets/<ticketId>"
+Invoke-WebRequest -Method DELETE -Uri "$env:SKULLS_FRONTEND_URL/api/matchmaking/tickets/<ticketId>" `
+    -Headers @{ "X-Debug-Player-Id" = "alice" }
 ```
 
 ```bash
 curl -sS -o /dev/null -w "%{http_code}\n" -X DELETE \
+  -H "X-Debug-Player-Id: alice" \
   "${SKULLS_FRONTEND_URL}/api/matchmaking/tickets/<ticketId>"
 ```
 
-Or: `.\scripts\frontend\cancel-ticket.ps1 -TicketId <ticketId>`
+Or: `.\scripts\frontend\cancel-ticket.ps1 -TicketId <ticketId> -PlayerId alice`
 
 ### Ticket status
 

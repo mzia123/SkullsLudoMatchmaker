@@ -1,7 +1,7 @@
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
 using OpenMatch;
+using SkullsLudo.Frontend.Auth;
 using SkullsLudo.Frontend.Models;
 using SkullsLudo.Frontend.Services;
 using SkullsLudo.Shared.Configuration;
@@ -13,12 +13,11 @@ public static class MatchmakingEndpoints
 {
     public const string CreateTicketRateLimitPolicy = "create-ticket";
 
-    private const string IdempotencyCachePrefix = "idemp:";
-
     public static RouteGroupBuilder MapMatchmakingEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/matchmaking/tickets")
-            .WithTags("Matchmaking");
+            .WithTags("Matchmaking")
+            .RequireAuthorization();
 
         group.MapPost("/", CreateTicket)
             .WithName("CreateTicket")
@@ -43,38 +42,29 @@ public static class MatchmakingEndpoints
     }
 
     private static async Task<IResult> CreateTicket(
-        HttpRequest httpRequest,
+        HttpContext httpContext,
         [FromBody] Models.CreateTicketRequest request,
         [FromServices] IOpenMatchFrontendService frontendService,
+        [FromServices] IOpenMatchQueryService queryService,
         [FromServices] MatchmakerSettings matchmaker,
-        [FromServices] IMemoryCache cache,
+        [FromServices] PlayerIdResolver playerIdResolver,
         CancellationToken ct)
     {
+        if (!playerIdResolver.TryResolve(httpContext, out var playerId, out var authError))
+            return authError!;
+
         if (!matchmaker.Queues.TryGetValue(request.Queue, out var queueConfig))
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["queue"] = [$"Unknown queue '{request.Queue}'. Valid: {string.Join(", ", matchmaker.Queues.Keys)}"]
             });
 
-        if (httpRequest.Headers.TryGetValue("Idempotency-Key", out var idemValues))
+        if (await queryService.HasActiveTicketForPlayerAsync(playerId, ct))
         {
-            var idemKey = idemValues.ToString().Trim();
-            if (idemKey.Length > 0)
+            return Results.Conflict(new
             {
-                var cacheKey = IdempotencyCachePrefix + idemKey;
-                if (cache.TryGetValue(cacheKey, out IdempotencyTicketRecord? prior) && prior is not null)
-                {
-                    if (!string.Equals(prior.Queue, request.Queue, StringComparison.Ordinal)
-                        || !string.Equals(prior.PlayerId, request.PlayerId, StringComparison.Ordinal)
-                        || Math.Abs(prior.Mmr - request.Mmr) > double.Epsilon)
-                    {
-                        return Results.Conflict(new { error = "Idempotency-Key reused with a different payload." });
-                    }
-
-                    return Results.Created($"/api/matchmaking/tickets/{prior.TicketId}",
-                        new CreateTicketResponse { TicketId = prior.TicketId });
-                }
-            }
+                error = "Player already has an active matchmaking ticket. Cancel it before creating a new one."
+            });
         }
 
         var ticket = new Ticket
@@ -82,37 +72,30 @@ public static class MatchmakingEndpoints
             SearchFields = new SearchFields
             {
                 DoubleArgs = { { WellKnown.SearchFields.Mmr, request.Mmr } },
-                StringArgs = { { WellKnown.SearchFields.PlayerId, request.PlayerId } },
+                StringArgs = { { WellKnown.SearchFields.PlayerId, playerId } },
                 Tags = { queueConfig.Tag }
             }
         };
 
         var created = await frontendService.CreateTicketAsync(ticket, ct);
 
-        if (httpRequest.Headers.TryGetValue("Idempotency-Key", out var idemHeader))
-        {
-            var idemKey = idemHeader.ToString().Trim();
-            if (idemKey.Length > 0)
-            {
-                cache.Set(
-                    IdempotencyCachePrefix + idemKey,
-                    new IdempotencyTicketRecord(created.Id, request.Queue, request.PlayerId, request.Mmr),
-                    new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1) });
-            }
-        }
-
         return Results.Created($"/api/matchmaking/tickets/{created.Id}",
             new CreateTicketResponse { TicketId = created.Id });
     }
 
     private static async Task<IResult> GetTicketStatus(
+        HttpContext httpContext,
         string ticketId,
         [FromServices] IOpenMatchFrontendService frontendService,
         [FromServices] MatchmakerSettings matchmaker,
+        [FromServices] PlayerIdResolver playerIdResolver,
         CancellationToken ct)
     {
+        if (!playerIdResolver.TryResolve(httpContext, out var playerId, out var authError))
+            return authError!;
+
         var ticket = await frontendService.GetTicketAsync(ticketId, ct);
-        if (ticket is null)
+        if (ticket is null || !OwnsTicket(ticket, playerId))
             return Results.NotFound();
 
         if (ticket.Assignment is { Connection.Length: > 0 } assignment)
@@ -160,12 +143,17 @@ public static class MatchmakingEndpoints
     }
 
     private static async Task<IResult> CancelTicket(
+        HttpContext httpContext,
         string ticketId,
         [FromServices] IOpenMatchFrontendService frontendService,
+        [FromServices] PlayerIdResolver playerIdResolver,
         CancellationToken ct)
     {
+        if (!playerIdResolver.TryResolve(httpContext, out var playerId, out var authError))
+            return authError!;
+
         var ticket = await frontendService.GetTicketAsync(ticketId, ct);
-        if (ticket is null)
+        if (ticket is null || !OwnsTicket(ticket, playerId))
             return Results.NotFound();
 
         if (ticket.Assignment is { Connection.Length: > 0 })
@@ -180,5 +168,7 @@ public static class MatchmakingEndpoints
         return Results.NoContent();
     }
 
-    private sealed record IdempotencyTicketRecord(string TicketId, string Queue, string PlayerId, double Mmr);
+    private static bool OwnsTicket(Ticket ticket, string playerId) =>
+        ticket.SearchFields.StringArgs.TryGetValue(WellKnown.SearchFields.PlayerId, out var owner)
+        && string.Equals(owner, playerId, StringComparison.Ordinal);
 }

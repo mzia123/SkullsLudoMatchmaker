@@ -4,7 +4,6 @@ using System.Text.Json;
 using Agones.Allocation;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Grpc.Net.Client;
 using OpenMatch;
 using SkullsLudo.Shared.Configuration;
 using SkullsLudo.Shared.Constants;
@@ -16,7 +15,7 @@ namespace SkullsLudo.Director.Services;
 /// info onto the GameServer as annotations. The Unity build reads those annotations
 /// via the Agones SDK at session start.
 /// </summary>
-public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
+public sealed class AgonesAllocatorService : IGameServerAllocator
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,16 +25,24 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
 
     private readonly AgonesSettings _settings;
     private readonly ILogger<AgonesAllocatorService> _logger;
-    private readonly GrpcChannel _channel;
     private readonly AllocationService.AllocationServiceClient _client;
 
-    public AgonesAllocatorService(AgonesSettings settings, ILogger<AgonesAllocatorService> logger)
+    public AgonesAllocatorService(
+        MatchmakerSettings matchmakerSettings,
+        AllocationService.AllocationServiceClient client,
+        ILogger<AgonesAllocatorService> logger)
     {
-        _settings = settings;
+        _settings = matchmakerSettings.Agones;
+        _client = client;
         _logger = logger;
-        _channel = BuildChannel(settings, logger);
-        _client = new AllocationService.AllocationServiceClient(_channel);
     }
+
+    public static SocketsHttpHandler CreateHttpHandler(AgonesSettings settings, ILogger logger) =>
+        new()
+        {
+            EnableMultipleHttp2Connections = true,
+            SslOptions = BuildSslOptions(settings, logger)
+        };
 
     public async Task<GameServerAllocation?> AllocateAsync(
         string queueName,
@@ -125,19 +132,6 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
         return queueConfig.MaxPlayers;
     }
 
-    private static GrpcChannel BuildChannel(AgonesSettings s, ILogger logger)
-    {
-        var handler = new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
-            SslOptions = BuildSslOptions(s, logger)
-        };
-
-        return GrpcChannel.ForAddress(
-            $"https://{s.AllocatorHost}:{s.AllocatorPort}",
-            new GrpcChannelOptions { HttpHandler = handler });
-    }
-
     private static SslClientAuthenticationOptions BuildSslOptions(AgonesSettings s, ILogger logger)
     {
         var clientCert = LoadClientCertificate(s);
@@ -180,8 +174,6 @@ public sealed class AgonesAllocatorService : IGameServerAllocator, IDisposable
 
     private static X509Certificate2 LoadCa(AgonesSettings s)
         => X509CertificateLoader.LoadCertificateFromFile(s.ServerCaPath);
-
-    public void Dispose() => _channel.Dispose();
 
     private sealed record MatchInfoPayload(
         string MatchId,
